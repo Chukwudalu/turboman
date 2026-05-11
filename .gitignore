@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+dist/
+
+# Env files (never commit secrets)
+.env.local
+.env*.local
+*.env
+
+# OS
+.DS_Store

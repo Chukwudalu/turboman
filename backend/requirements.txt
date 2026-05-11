@@ -1,0 +1,45 @@
+# Web framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# WebSockets
+websockets
+
+# AI
+anthropic
+openai          # text-embedding-3-small for KB RAG
+
+# Auth
+python-jose[cryptography]  # JWT signing for dashboard login
+bcrypt                      # password hashing for users table
+slowapi                     # rate limiting for webhook and auth endpoints
+
+# Voice services
+deepgram-sdk>=3,<4
+httpx           # async HTTP for Cartesia TTS + Jobber
+
+# Database
+supabase
+
+# Cache / session
+redis
+
+# Twilio
+twilio
+
+# Config
+python-dotenv
+pydantic-settings
+pydantic
+
+# Error monitoring
+sentry-sdk[fastapi]
+
+# KB ingestion
+pypdf
+
+# Testing
+pytest
+pytest-asyncio
+pytest-mock

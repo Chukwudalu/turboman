@@ -1,0 +1,91 @@
+                        ┌──────────────────────────────────────────────────┐
+  Customer ──PSTN──►   │  TWILIO                                           │
+                        │  POST /incoming-call ──► TwiML response          │
+                        │  WS   /call-stream   ◄── FastAPI                 │
+                        └────────────────┬─────────────────────────────────┘
+                                         │ binary mulaw frames (8 kHz)
+                        ┌────────────────▼─────────────────────────────────┐
+                        │  GATEWAY  (one CallState per call)               │
+                        │  ┌────────────────────────────────────────────┐  │
+                        │  │  Silence timer │ Barge-in │ Transcript log │  │
+                        │  └────────────────────────────────────────────┘  │
+                        │      │ audio bytes          ▲ audio bytes        │
+                        │  ┌───▼──────┐        ┌──────┴──────┐            │
+                        │  │ Deepgram │        │  Cartesia   │            │
+                        │  │ nova-3   │        │ sonic (TTS) │            │
+                        │  │  (STT)   │        └──────▲──────┘            │
+                        │  └───┬──────┘               │ sentence chunks   │
+                        │      │ transcript            │                   │
+                        │  ┌───▼──────────────────────┴───────────────┐   │
+                        │  │         ORCHESTRATOR                      │   │
+                        │  │  Claude Haiku  ←  system prompt           │   │
+                        │  │  (streaming)      + KB context (RAG)      │   │
+                        │  │  (prompt cache)   + customer history      │   │
+                        │  └──────────────────┬────────────────────────┘   │
+                        │                     │ tool calls                 │
+                        │  ┌──────────────────▼────────────────────────┐   │
+                        │  │          ACTIONS ROUTER                   │   │
+                        │  │  book_job │ reschedule │ status │ escalate│   │
+                        │  └────┬───────────┬────────────────┬─────────┘   │
+                        └───────┼───────────┼────────────────┼─────────────┘
+                                │           │                │
+                    ┌───────────▼──┐  ┌─────▼──────┐  ┌─────▼──────────┐
+                    │ HousecallPro │  │   Supabase │  │  Twilio REST   │
+                    │   / Jobber   │  │ + pgvector │  │  (warm xfer)   │
+                    └──────────────┘  └─────┬──────┘  └────────────────┘
+                                            │
+                                    ┌───────▼──────┐
+                                    │  Upstash     │
+                                    │  Redis       │
+                                    │ (tenant cfg) │
+                                    └──────────────┘
+
+Turboman - supabase database pass- intentOnSecurity888
+
+I think there is a misunderstanding on what an escalation is:
+1. when a customer makes a service request, that is not an escalation. Just log the issue as usual and the normal operation
+2. An escalation is when ai cant help the customer, so the ai tranfers the customer a human agent
+3. An emergency:
+        a. A customer calls in and states the issue. The companies knowledge base might have a list of what constitutes an emergency, the AI makes a suggestion and ask of the customer wants this as an emergency service
+                the AI logs this as an emergency and the company disatchers deals with this . This is for regular business hours
+        b. If a customer states that its a n emergency, then its an emergency. The AI Treats it as such
+        c. If after hours the AI, carries out the operation for emergency after hours calls. If after hours and not emergency, the AI logs the service request and the disatchers handles it the next day
+        d. The ai should be sure to notify the customer of after hours cost, as it is most times different from regular hours cost
+        e. In the frontend, i want a seperate page for after hours service requests that was logged.
+                I also want a seperation for the services that was attended to during after hours vs services that needs to be scheduled
+                by the dispathers
+
+
+For after hours:
+        1. The app should have aftter hours on-call technician contact, usually trade companies have 2-3, primary and back-ups.
+        2. The app should give the trade company the option to input the after hours technician in heirachy . first on-call (primary), second on-call, third, etc
+        3. The input should constitute the name, contact and email
+        4. When an after hours call comes in, if it's confirmed to be an emergency that must be attended that same evening/night/early morning (prior to regular business hours) (after-hours)
+                The system should immediately, contact the after hours technician based on heirachy of schedule. (Primary first, then back-ups ....)
+        5. If the first oncall technician does not respond, contact the second, and so on
+        6. If no one responds, there should be contact of a manager or someone in management.
+                if there is no contact in management or escalation contact up the chain and 10 mins has elapsed (The 10 mins should be adjustable in the frontend)  -> contact the customer and let them know that we cannot get                             to them till the next day
+
+
+1. What about escalating to management what attempts to reach a technician has been exausted ?
+2. I also want the app to give trades companies the option to add an escalation contact. Multiple, just like the techs. The idea is that if the system cannot reach the technicians, it might be able to reach the managers or someone the oversees the technicians. They are not being responsive, then we can notify the customer that we cannot make it
+3. We want to give the company the option to either choose to notify the technicians by voice, sms or both
+
+
+1. We also need the phone number(If provided) and email of the customer(If provided)
+2. We also need a way to differenciate the after hours services that was provided and the one's that were dropped, and the ones that could be held of till the next morning, but have to be attended to immediately the next day
+-------------
+1. Data still not showing in service request page
+2. Even though it is after hours, only let the customer know the price, if they say they want the service past regular hours (after hours), if say they say it's an emergency, or if the service sounds like an emergency as
+   described in the KB, if in the KB
+3. When i wanted to make a service request for regular hours the next day, it was trying to escalate, instead of just logging the service request, so the dispatch team can deal with it the next day
+
+
+
+
+
+
+
+
+
+

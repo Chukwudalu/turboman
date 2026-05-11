@@ -1,0 +1,61 @@
+"use client";
+import { useEffect, useState } from "react";
+import { Menu, Zap } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import Sidebar from "@/components/sidebar";
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { data: session } = useSession();
+
+  useEffect(() => {
+    if ((session as any)?.error === "RefreshAccessTokenError") {
+      signOut({ callbackUrl: "/login" });
+    }
+  }, [session]);
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-slate-50">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — slide-in drawer on mobile, static column on desktop */}
+      <div
+        className={`
+          fixed inset-y-0 left-0 z-30 transition-transform duration-200 ease-in-out
+          lg:static lg:translate-x-0
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        `}
+      >
+        <Sidebar onClose={() => setSidebarOpen(false)} />
+      </div>
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Mobile top bar */}
+        <header className="lg:hidden flex items-center gap-3 px-4 py-3.5 bg-white border-b border-slate-200 shrink-0">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+            aria-label="Open navigation"
+          >
+            <Menu size={20} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center shadow-sm shadow-brand/30">
+              <Zap size={13} className="text-white" />
+            </div>
+            <span className="font-bold text-slate-900 text-base">Turboman</span>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-4 lg:p-8">{children}</main>
+      </div>
+    </div>
+  );
+}
