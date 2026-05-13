@@ -559,7 +559,7 @@ async def list_escalations(tenant_id: str = Depends(_get_tenant_id)):
     )
     rows = result.data or []
     for row in rows:
-        row["call_id"] = (row.pop("calls") or {}).get("id")
+        row["call_id"] = (row.pop("calls", None) or {}).get("id")
     return rows
 
 
