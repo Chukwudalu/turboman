@@ -10,6 +10,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def mock_get_tenant_phone():
+    """Prevent _get_tenant_phone from hitting the real DB in every test."""
+    with patch(
+        "src.services.oncall_dispatch._get_tenant_phone",
+        AsyncMock(return_value="+15555550000"),
+    ):
+        yield
+
+
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 TECH_1 = {"id": "tech-1", "name": "Alice", "phone": "+15555550001", "role": "tech", "tenant_id": "t1"}
