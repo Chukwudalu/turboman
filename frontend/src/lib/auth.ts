@@ -2,7 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
 const API_URL = process.env.API_URL ?? "http://localhost:8000";
-const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 min — must match backend
+const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min — must match backend
 
 async function refreshAccessToken(token: any) {
   try {

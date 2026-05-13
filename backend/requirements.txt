@@ -33,6 +33,9 @@ python-dotenv
 pydantic-settings
 pydantic
 
+# Email
+resend
+
 # Error monitoring
 sentry-sdk[fastapi]
 

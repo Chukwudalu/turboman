@@ -8,8 +8,7 @@ import { api, type ServiceRequest, type OncallDispatch, type Page } from "@/lib/
 import { StatusBadge } from "@/components/status-badge";
 import { DateSelector } from "@/components/date-selector";
 import { filterByDate, todayStr } from "@/lib/date-groups";
-
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "";
+import { decodeTenantId } from "@/lib/jwt";
 
 // ── Dispatch status badge ─────────────────────────────────────────────────────
 
@@ -215,16 +214,17 @@ function NonEmergencyTable({
 export default function AfterHoursPage() {
   const { data: session } = useSession();
   const token = (session as any)?.accessToken ?? "";
+  const tenantId = decodeTenantId(token);
   const [date, setDate] = useState(todayStr());
 
   const { data: pages, isLoading, size, setSize, mutate } = useSWRInfinite<Page<ServiceRequest>>(
     (_, prev: Page<ServiceRequest> | null) => {
       if (!token) return null;
       if (prev && !prev.next_cursor) return null;
-      return { key: "after-hours", tenantId: TENANT_ID, cursor: prev?.next_cursor ?? null };
+      return { key: "after-hours", tenantId, cursor: prev?.next_cursor ?? null };
     },
     ({ cursor }: { key: string; tenantId: string; cursor: string | null }) =>
-      api.afterHoursRequests(token, TENANT_ID, cursor ?? undefined),
+      api.afterHoursRequests(token, tenantId, cursor ?? undefined),
     { refreshInterval: 60_000, revalidateOnFocus: false }
   );
 

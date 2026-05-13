@@ -8,8 +8,7 @@ import { DateSelector } from "@/components/date-selector";
 import { filterByDate, todayStr } from "@/lib/date-groups";
 import Link from "next/link";
 import { Phone, ClipboardList, FolderOpen, AlertTriangle, ArrowUpRight } from "lucide-react";
-
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "";
+import { decodeTenantId } from "@/lib/jwt";
 
 function StatCard({ label, value, icon: Icon, iconBg }: { label: string; value: number | undefined; icon: React.ElementType; iconBg: string }) {
   return (
@@ -28,23 +27,24 @@ function StatCard({ label, value, icon: Icon, iconBg }: { label: string; value: 
 export default function OverviewPage() {
   const { data: session } = useSession();
   const token = (session as any)?.accessToken ?? "";
+  const tenantId = decodeTenantId(token);
   const [date, setDate] = useState(todayStr());
 
   const { data: summary } = useSWR(
-    token ? ["summary", TENANT_ID] : null,
-    () => api.summary(token, TENANT_ID),
+    token ? ["summary", tenantId] : null,
+    () => api.summary(token, tenantId),
     { refreshInterval: 30_000, revalidateOnFocus: false }
   );
 
   const { data: calls } = useSWR(
-    token ? ["calls", TENANT_ID] : null,
-    () => api.calls(token, TENANT_ID),
+    token ? ["calls", tenantId] : null,
+    () => api.calls(token, tenantId),
     { revalidateOnFocus: false }
   );
 
   const { data: requests } = useSWR(
-    token ? ["requests", TENANT_ID] : null,
-    () => api.requests(token, TENANT_ID),
+    token ? ["requests", tenantId] : null,
+    () => api.requests(token, tenantId),
     { revalidateOnFocus: false }
   );
 

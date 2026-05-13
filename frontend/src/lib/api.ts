@@ -53,6 +53,9 @@ export interface CallDetail extends Call {
 export interface TenantSettings {
   id: string;
   name: string;
+  phone: string | null;
+  plan: "trial" | "active" | "cancelled" | "closed";
+  trial_ends_at: string | null;
   business_hours_start: string | null;
   business_hours_end: string | null;
   business_timezone: string | null;
@@ -61,6 +64,23 @@ export interface TenantSettings {
   oncall_fallback_delay_minutes: number | null;
   escalation_phone: string | null;
   escalation_phone_after_hours: string | null;
+  cartesia_voice_id: string | null;
+  kb_about: string | null;
+  kb_services: string | null;
+  kb_hours_description: string | null;
+  kb_rate_regular: string | null;
+  kb_rate_after_hours: string | null;
+  kb_rate_maintenance: string | null;
+  kb_extra: string | null;
+}
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "owner" | "admin" | "member";
+  active: boolean;
+  created_at: string;
 }
 
 export interface OncallTechnician {
@@ -112,6 +132,17 @@ export interface CustomerDetail extends Customer {
 
 export interface ServiceRequestDetail extends ServiceRequest {
   calls: { twilio_sid: string; duration_s: number | null } | null;
+}
+
+export type EscalationStatus = "pending" | "bridged" | "handled";
+
+export interface Escalation {
+  id: string;
+  status: EscalationStatus;
+  summary: string | null;
+  created_at: string;
+  handled_at: string | null;
+  customers: { name: string | null; phone: string } | null;
 }
 
 export interface KBChunk {
@@ -173,27 +204,30 @@ export const api = {
   deleteKbChunk: (token: string, chunkId: string) =>
     req<{ deleted: boolean }>(`/dashboard/kb/${chunkId}`, token, { method: "DELETE" }),
 
+  voices: (token: string) =>
+    req<{ id: string; name: string; description: string }[]>(`/dashboard/voices`, token),
+
   tenantSettings: (token: string, tenantId: string) =>
     req<TenantSettings>(`/dashboard/settings?tenant_id=${tenantId}`, token),
 
-  updateTenantSettings: (
-    token: string,
-    tenantId: string,
-    body: {
-      business_hours_start?: string;
-      business_hours_end?: string;
-      business_timezone?: string;
-      oncall_escalation_timeout_minutes?: number;
-      oncall_notification_method?: "voice" | "sms" | "both";
-      oncall_fallback_delay_minutes?: number;
-      escalation_phone?: string;
-      escalation_phone_after_hours?: string;
-    }
-  ) =>
+  updateTenantSettings: (token: string, tenantId: string, body: Record<string, unknown>) =>
     req<TenantSettings>(`/dashboard/settings?tenant_id=${tenantId}`, token, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+
+  teamMembers: (token: string, tenantId: string) =>
+    req<TeamMember[]>(`/dashboard/team?tenant_id=${tenantId}`, token),
+
+  inviteTeamMember: (token: string, body: { email: string; name: string; role: string }) =>
+    req<{ id: string; email: string; name: string; role: string; temp_password: string }>(
+      `/auth/invite`,
+      token,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  removeTeamMember: (token: string, userId: string) =>
+    req<{ ok: boolean }>(`/dashboard/team/${userId}`, token, { method: "DELETE" }),
 
   oncallTechnicians: (token: string, tenantId: string, role: "tech" | "manager" = "tech") =>
     req<OncallTechnician[]>(`/dashboard/oncall-technicians?tenant_id=${tenantId}&role=${role}`, token),
@@ -222,6 +256,21 @@ export const api = {
     req<{ deleted: boolean }>(`/dashboard/oncall-technicians/${techId}`, token, {
       method: "DELETE",
     }),
+
+  escalations: (token: string) =>
+    req<Escalation[]>(`/dashboard/escalations`, token),
+
+  updateEscalation: (token: string, id: string, status: EscalationStatus) =>
+    req<Escalation>(`/dashboard/escalations/${id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
+  changePassword: (token: string, body: { current_password: string; new_password: string }) =>
+    req<{ ok: boolean }>(`/auth/change-password`, token, { method: "POST", body: JSON.stringify(body) }),
+
+  closeAccount: (token: string) =>
+    req<{ closed: boolean }>(`/dashboard/close-account`, token, { method: "POST" }),
 
   uploadKbFile: async (token: string, tenantId: string, file: File) => {
     const form = new FormData();

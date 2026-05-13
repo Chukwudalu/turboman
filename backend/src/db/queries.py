@@ -57,6 +57,30 @@ async def get_tenant_by_phone(phone: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+async def create_escalation(
+    tenant_id: str,
+    call_id: str | None,
+    customer_id: str | None,
+    summary: str,
+) -> str:
+    res = db.table("escalations").insert({
+        "tenant_id": tenant_id,
+        "call_id": call_id,
+        "customer_id": customer_id,
+        "status": "pending",
+        "summary": summary,
+    }).execute()
+    return res.data[0]["id"]
+
+
+async def update_escalation_status(escalation_id: str, status: str):
+    from datetime import datetime, timezone
+    update: dict = {"status": status}
+    if status == "handled":
+        update["handled_at"] = datetime.now(timezone.utc).isoformat()
+    db.table("escalations").update(update).eq("id", escalation_id).execute()
+
+
 async def get_customer_history(tenant_id: str, phone: str) -> dict | None:
     res = (
         db.table("customers")

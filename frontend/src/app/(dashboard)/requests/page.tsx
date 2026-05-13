@@ -8,8 +8,7 @@ import { api, type RequestStatus, type ServiceRequest, type Page } from "@/lib/a
 import { StatusBadge } from "@/components/status-badge";
 import { DateSelector } from "@/components/date-selector";
 import { filterByDate, todayStr } from "@/lib/date-groups";
-
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "";
+import { decodeTenantId } from "@/lib/jwt";
 
 const NEXT_STATUSES: Partial<Record<RequestStatus, { label: string; value: RequestStatus }[]>> = {
   pending:              [{ label: "Mark Scheduled", value: "scheduled" }, { label: "Cancel", value: "cancelled" }],
@@ -69,6 +68,7 @@ function ScheduleModal({
 export default function RequestsPage() {
   const { data: session } = useSession();
   const token = (session as any)?.accessToken ?? "";
+  const tenantId = decodeTenantId(token);
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
 
@@ -76,10 +76,10 @@ export default function RequestsPage() {
     (_, prev: Page<ServiceRequest> | null) => {
       if (!token) return null;
       if (prev && !prev.next_cursor) return null;
-      return { key: "requests", tenantId: TENANT_ID, cursor: prev?.next_cursor ?? null };
+      return { key: "requests", tenantId, cursor: prev?.next_cursor ?? null };
     },
     ({ cursor }: { key: string; tenantId: string; cursor: string | null }) =>
-      api.requests(token, TENANT_ID, undefined, cursor ?? undefined),
+      api.requests(token, tenantId, undefined, cursor ?? undefined),
     { refreshInterval: 20_000, revalidateOnFocus: false }
   );
 

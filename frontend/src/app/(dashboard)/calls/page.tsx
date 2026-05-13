@@ -8,8 +8,7 @@ import { api, type Call, type Page } from "@/lib/api";
 import { StatusBadge } from "@/components/status-badge";
 import { DateSelector } from "@/components/date-selector";
 import { filterByDate, todayStr } from "@/lib/date-groups";
-
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "";
+import { decodeTenantId } from "@/lib/jwt";
 
 function dur(s: number | null) {
   if (!s) return "—";
@@ -21,16 +20,17 @@ function dur(s: number | null) {
 export default function CallsPage() {
   const { data: session } = useSession();
   const token = (session as any)?.accessToken ?? "";
+  const tenantId = decodeTenantId(token);
   const [date, setDate] = useState(todayStr());
 
   const { data: pages, isLoading, size, setSize } = useSWRInfinite<Page<Call>>(
     (_, prev: Page<Call> | null) => {
       if (!token) return null;
       if (prev && !prev.next_cursor) return null;
-      return { key: "calls", tenantId: TENANT_ID, cursor: prev?.next_cursor ?? null };
+      return { key: "calls", tenantId, cursor: prev?.next_cursor ?? null };
     },
     ({ cursor }: { key: string; tenantId: string; cursor: string | null }) =>
-      api.calls(token, TENANT_ID, cursor ?? undefined),
+      api.calls(token, tenantId, cursor ?? undefined),
     { refreshInterval: 15_000, revalidateOnFocus: false }
   );
 

@@ -10,7 +10,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from twilio.rest import Client as TwilioClient
 
 from src.config import settings
-from src.db.queries import create_call, end_call, get_tenant_by_phone, upsert_customer
+from src.db.queries import create_call, create_escalation, end_call, get_tenant_by_phone, upsert_customer
 from src.db.rag import search_kb
 from src.utils.business_hours import is_after_hours as _is_after_hours
 from src.orchestrator import run_turn
@@ -65,11 +65,14 @@ class CallState:
     # Debounce state — accumulates transcripts and fires after a quiet window
     _debounce_task: asyncio.Task | None = None
     _pending_transcript: str = ""
+    redis_client: any = field(default=None)
+    escalate_summary: str = ""
 
 
 async def handle_call_websocket(websocket: WebSocket, redis_client):
     await websocket.accept()
     state = CallState()
+    state.redis_client = redis_client
 
     async def on_transcript(text: str):
         # Ignore noise/breathing — wait for real words
@@ -137,7 +140,13 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
         on_partial=on_partial,
         on_error=on_stt_error,
     )
-    await stt.connect()
+    try:
+        await stt.connect()
+        logger.info("Deepgram STT connected")
+    except Exception as e:
+        logger.error("Deepgram STT connect failed — hanging up", error=str(e))
+        await websocket.close()
+        return
 
     try:
         async for raw in websocket.iter_text():
@@ -240,17 +249,14 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
             total_stream_elapsed += t
 
         async def on_action(action: dict):
-            """
-            NOTE:-IMPORTANT: Currently Action includes:
-                1. Booking a job
-                We will need to define more things that constitutes and action and implement accordingly 
-            """
             name, result = action["name"], action["result"]
             logger.info("Action taken", name=name, success=result.get("success"))
             if name == "book_job" and result.get("success") and state.customer:
                 phone = state.customer.get("phone")
                 if phone:
                     await send_confirmation_sms(phone, result["message"])
+            if name == "escalate_to_human":
+                state.escalate_summary = action["input"].get("summary", "")
 
         try:
             result = await run_turn(
@@ -422,6 +428,38 @@ async def _handle_escalation(websocket: WebSocket, state: CallState):
             "\n".join(state.transcript_lines),
         )
 
+    # Create escalation record and store context in Redis
+    name = (state.customer or {}).get("name") or "unknown caller"
+    inquiry = state.escalate_summary or (
+        ". ".join(
+            l[len("caller: "):] for l in state.transcript_lines[-4:] if l.startswith("caller: ")
+        ) or "No details captured."
+    )
+
+    escalation_id: str | None = None
+    tenant_id = state.tenant.get("id", "")
+    if tenant_id:
+        try:
+            escalation_id = await create_escalation(
+                tenant_id=tenant_id,
+                call_id=state.call_record["id"] if state.call_record else None,
+                customer_id=(state.customer or {}).get("id"),
+                summary=inquiry[:500],
+            )
+        except Exception as e:
+            logger.error("Failed to create escalation record", error=str(e))
+
+    context = json.dumps({
+        "name": name,
+        "phone": (state.customer or {}).get("phone", ""),
+        "inquiry": inquiry[:500],
+        "tenant_id": tenant_id,
+        "customer_id": (state.customer or {}).get("id"),
+        "escalation_id": escalation_id,
+    })
+    if state.redis_client and state.call_sid:
+        await state.redis_client.set(f"escalation:{state.call_sid}", context, ex=3600)
+
     # Pick the right escalation number: tenant after-hours number (if configured and
     # currently after-hours), tenant regular number, or global env-var fallback.
     after_hours_phone = state.tenant.get("escalation_phone_after_hours") or ""
@@ -435,12 +473,23 @@ async def _handle_escalation(websocket: WebSocket, state: CallState):
     )
 
     if escalation_phone and state.call_sid:
-        twiml = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            "<Response>"
-            f"<Dial>{escalation_phone}</Dial>"
-            "</Response>"
-        )
+        base = settings.base_url.rstrip("/") if settings.base_url else ""
+        if base:
+            whisper_url = f"{base}/call-whisper?call_sid={state.call_sid}"
+            action_url = f"{base}/call-dial-action?call_sid={state.call_sid}"
+            twiml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<Response>"
+                f'<Dial action="{action_url}" timeout="30">'
+                f'<Number url="{whisper_url}" method="POST">{escalation_phone}</Number>'
+                "</Dial>"
+                "</Response>"
+            )
+        else:
+            twiml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                f"<Response><Dial timeout=\"30\">{escalation_phone}</Dial></Response>"
+            )
         try:
             twilio = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
             twilio.calls(state.call_sid).update(twiml=twiml)

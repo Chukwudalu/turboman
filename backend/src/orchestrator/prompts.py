@@ -9,6 +9,28 @@ def build_system_prompt(tenant: dict, customer: dict | None, kb_context: list[st
         else "New customer — no history on file."
     )
 
+    _bi_lines = []
+    if tenant.get("kb_about"):
+        _bi_lines.append(f"About: {tenant['kb_about']}")
+    if tenant.get("kb_services"):
+        _bi_lines.append(f"Services offered: {tenant['kb_services']}")
+    if tenant.get("kb_hours_description"):
+        _bi_lines.append(f"Business hours: {tenant['kb_hours_description']}")
+    if tenant.get("kb_rate_regular"):
+        _bi_lines.append(f"Regular rate: {tenant['kb_rate_regular']}")
+    if tenant.get("kb_rate_after_hours"):
+        _bi_lines.append(f"After-hours rate: {tenant['kb_rate_after_hours']}")
+    if tenant.get("kb_rate_maintenance"):
+        _bi_lines.append(f"Maintenance rate: {tenant['kb_rate_maintenance']}")
+    if tenant.get("kb_extra"):
+        _bi_lines.append(f"Additional info: {tenant['kb_extra']}")
+
+    business_info_section = (
+        "\n\nBusiness information:\n" + "\n".join(f"- {l}" for l in _bi_lines)
+        if _bi_lines
+        else ""
+    )
+
     kb_section = (
         "\n\nCompany knowledge base:\n" + "\n".join(f"- {c}" for c in kb_context)
         if kb_context
@@ -63,7 +85,7 @@ Your job is to help customers over the phone. You can:
 - Answer questions about services and pricing using the knowledge base
 - Transfer to a human agent when needed
 
-Customer context: {customer_ctx}{kb_section}
+Customer context: {customer_ctx}{business_info_section}{kb_section}
 
 INTAKE FLOW — follow this EVERY call, in order:
 1. {"Ask for the customer's service address." if name_known else "Ask for the customer's name. Once they give it, call save_customer_info immediately (silently)."}
@@ -88,24 +110,28 @@ If yes: call book_job with is_emergency=true. If no: book_job with is_emergency=
 
 Step 3 — All other requests: standard service request. Call book_job with is_emergency=false.
 
-INQUIRY PATH — follow when the customer has a question:
-- Check the knowledge base context above for a relevant answer.
-- If the knowledge base contains a clear answer: give it concisely in 1-2 sentences.
-- If the knowledge base does NOT contain a relevant answer: do NOT guess or make anything up. \
-Immediately call escalate_to_human with reason "inquiry not in knowledge base".
-- If the customer has follow-up questions: apply the same rule each time.
+INQUIRY PATH — follow when the customer indicates they have a question or non-booking inquiry:
+1. Ask: "Of course — what's your question?" and wait for their full answer. Do not interrupt or prompt them.
+2. Once they have described their question or complaint, say exactly: \
+"Got it. Let me get you connected with someone who can help with that." \
+Then immediately call escalate_to_human with:
+   - reason: "customer inquiry"
+   - summary: their name, service address, and a one-sentence description of what they are asking
+3. Do NOT attempt to answer the question yourself.
+4. Do NOT ask follow-up questions — capture what they said in one pass and escalate.
 
 ESCALATION — this is different from an emergency:
-Use escalate_to_human ONLY when:
+Use escalate_to_human when:
 - The customer explicitly asks to speak to a person
-- The situation is genuinely too complex for you to handle
+- The customer has a question or inquiry (follow INQUIRY PATH above)
 - The customer is very upset and needs human attention
-- The customer has an inquiry that is not answered by the knowledge base
+- The situation is genuinely too complex to handle
 Emergencies are NOT escalations — you still handle them, just with is_emergency=true.
 
 GENERAL RULES:
 - Keep responses SHORT. You are on a phone call. 1-2 sentences max per turn.
 - Ask ONE question at a time. Never ask multiple things in the same response.
+- Do not ask the same question multiple times, unless the customer didn't respond the first time
 - Never say "I'm an AI" unless directly asked.
 - When you log a request, tell the customer the team will be in touch — never say it is confirmed.
 - Do not make up prices or availability. Use the knowledge base or say the team will follow up.

@@ -37,11 +37,22 @@ _bearer = HTTPBearer()
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
 def _get_tenant_id(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
-    """Decode the JWT and return the tenant_id encoded inside it."""
+    """Decode the JWT, enforce trial status, and return the tenant_id."""
     payload = decode_token(credentials.credentials)
     tenant_id = payload.get("tenant_id", "")
     if not tenant_id:
         raise HTTPException(status_code=403, detail="Token has no tenant scope")
+
+    tenant = db.table("tenants").select("plan, trial_ends_at").eq("id", tenant_id).single().execute()
+    if tenant.data:
+        plan = tenant.data.get("plan", "trial")
+        trial_ends_at = tenant.data.get("trial_ends_at")
+        if plan == "trial" and trial_ends_at:
+            from datetime import datetime, timezone
+            expires = datetime.fromisoformat(trial_ends_at.replace("Z", "+00:00"))
+            if expires < datetime.now(timezone.utc):
+                raise HTTPException(status_code=402, detail="Trial expired. Please upgrade to continue.")
+
     return tenant_id
 
 
@@ -379,13 +390,27 @@ class TenantSettingsUpdate(BaseModel):
     oncall_fallback_delay_minutes: int | None = None
     escalation_phone: E164Phone | None = None
     escalation_phone_after_hours: E164Phone | None = None
+    cartesia_voice_id: str | None = None
+    kb_about: str | None = None
+    kb_services: str | None = None
+    kb_hours_description: str | None = None
+    kb_rate_regular: str | None = None
+    kb_rate_after_hours: str | None = None
+    kb_rate_maintenance: str | None = None
+    kb_extra: str | None = None
 
 
 @router.get("/settings")
 async def get_settings(tenant_id: str = Depends(_get_tenant_id)):
     result = (
         db.table("tenants")
-        .select("id, name, business_hours_start, business_hours_end, business_timezone, oncall_escalation_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes, escalation_phone, escalation_phone_after_hours")
+        .select(
+            "id, name, phone, business_hours_start, business_hours_end, business_timezone, "
+            "oncall_escalation_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes, "
+            "escalation_phone, escalation_phone_after_hours, cartesia_voice_id, "
+            "kb_about, kb_services, kb_hours_description, kb_rate_regular, kb_rate_after_hours, "
+            "kb_rate_maintenance, kb_extra, plan, trial_ends_at"
+        )
         .eq("id", tenant_id)
         .single()
         .execute()
@@ -418,6 +443,59 @@ async def update_settings(body: TenantSettingsUpdate, request: Request, tenant_i
             await redis.delete(f"tenant:phone:{phone}")
 
     return tenant
+
+
+# ── Voices ─────────────────────────────────────────────────────────────────────
+
+@router.get("/voices")
+async def list_voices(tenant_id: str = Depends(_get_tenant_id)):
+    """Fetch available English voices from Cartesia and return name + id."""
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            "https://api.cartesia.ai/voices",
+            headers={
+                "X-API-Key": settings.cartesia_api_key,
+                "Cartesia-Version": "2024-06-10",
+            },
+        )
+        resp.raise_for_status()
+        all_voices = resp.json()
+
+    voices = [
+        {"id": v["id"], "name": v["name"], "description": v.get("description", "")}
+        for v in all_voices
+        if v.get("language", "en") == "en" and v.get("is_public", False)
+    ]
+    voices.sort(key=lambda v: v["name"])
+    return voices
+
+
+# ── Team members ──────────────────────────────────────────────────────────────
+
+@router.get("/team")
+async def list_team(tenant_id: str = Depends(_get_tenant_id)):
+    result = (
+        db.table("users")
+        .select("id, email, name, role, active, created_at")
+        .eq("tenant_id", tenant_id)
+        .order("created_at")
+        .execute()
+    )
+    return result.data or []
+
+
+@router.delete("/team/{user_id}")
+async def remove_team_member(user_id: str, tenant_id: str = Depends(_get_tenant_id)):
+    result = db.table("users").select("id, role, tenant_id").eq("id", user_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="User not found")
+    if result.data["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if result.data["role"] == "owner":
+        raise HTTPException(status_code=400, detail="Cannot remove the account owner")
+    db.table("users").update({"active": False}).eq("id", user_id).execute()
+    return {"ok": True}
 
 
 # ── On-call technicians ────────────────────────────────────────────────────────
@@ -463,6 +541,99 @@ async def edit_oncall_technician(tech_id: str, body: OncallTechUpdate, _: str = 
 async def remove_oncall_technician(tech_id: str, _: str = Depends(_get_tenant_id)):
     await delete_oncall_technician(tech_id)
     return {"deleted": True}
+
+
+# ── Escalations ───────────────────────────────────────────────────────────────
+
+@router.get("/escalations")
+async def list_escalations(tenant_id: str = Depends(_get_tenant_id)):
+    result = (
+        db.table("escalations")
+        .select("*, customers(name, phone)")
+        .eq("tenant_id", tenant_id)
+        .order("created_at", desc=True)
+        .limit(100)
+        .execute()
+    )
+    return result.data or []
+
+
+class EscalationUpdate(BaseModel):
+    status: str  # "handled"
+
+
+@router.patch("/escalations/{escalation_id}")
+async def update_escalation(
+    escalation_id: str,
+    body: EscalationUpdate,
+    tenant_id: str = Depends(_get_tenant_id),
+):
+    existing = (
+        db.table("escalations")
+        .select("id")
+        .eq("id", escalation_id)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Escalation not found")
+
+    from datetime import datetime, timezone
+    update: dict = {"status": body.status}
+    if body.status == "handled":
+        update["handled_at"] = datetime.now(timezone.utc).isoformat()
+
+    db.table("escalations").update(update).eq("id", escalation_id).execute()
+    result = (
+        db.table("escalations")
+        .select("*, customers(name, phone)")
+        .eq("id", escalation_id)
+        .single()
+        .execute()
+    )
+    return result.data
+
+
+@router.post("/close-account")
+async def close_account(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+):
+    payload = decode_token(credentials.credentials)
+    if payload.get("role") != "owner":
+        raise HTTPException(status_code=403, detail="Only the account owner can close the account")
+
+    tenant_id = payload.get("tenant_id", "")
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Token has no tenant scope")
+
+    row = db.table("tenants").select("phone, twilio_phone_sid").eq("id", tenant_id).single().execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if row.data.get("twilio_phone_sid"):
+        try:
+            from src.services.twilio_provision import release_phone_number
+            release_phone_number(row.data["twilio_phone_sid"])
+        except Exception as e:
+            from src.utils.logger import logger
+            logger.error("Failed to release Twilio number on account close", error=str(e))
+
+    redis = getattr(request.app.state, "redis", None)
+    if redis and row.data.get("phone"):
+        await redis.delete(f"tenant:phone:{row.data['phone']}")
+
+    db.table("tenants").update({
+        "plan": "closed",
+        "phone": None,
+        "twilio_phone_sid": None,
+    }).eq("id", tenant_id).execute()
+
+    db.table("users").update({"active": False}).eq("tenant_id", tenant_id).execute()
+
+    from src.utils.logger import logger
+    logger.info("Account closed by owner", tenant_id=tenant_id)
+    return {"closed": True}
 
 
 def _extract_pdf(raw: bytes) -> str:

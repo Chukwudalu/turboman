@@ -1,12 +1,170 @@
 "use client";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
-import { Upload, Trash2, FileText, Loader2, BookOpen } from "lucide-react";
+import { Upload, Trash2, FileText, Loader2, BookOpen, Building2, Save } from "lucide-react";
 import clsx from "clsx";
 import { api, KBChunk } from "@/lib/api";
+import { decodeTenantId } from "@/lib/jwt";
 
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "";
+// ── Business info form ────────────────────────────────────────────────────────
+
+function BusinessInfoCard({ token }: { token: string }) {
+  const tenantId = decodeTenantId(token);
+  const { data: settings, isLoading } = useSWR(
+    token ? ["settings", token] : null,
+    ([, t]) => api.tenantSettings(t, tenantId),
+    { revalidateOnFocus: false }
+  );
+
+  const [about, setAbout] = useState("");
+  const [services, setServices] = useState("");
+  const [hoursDesc, setHoursDesc] = useState("");
+  const [rateRegular, setRateRegular] = useState("");
+  const [rateAfterHours, setRateAfterHours] = useState("");
+  const [rateMaintenance, setRateMaintenance] = useState("");
+  const [extra, setExtra] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!settings) return;
+    setAbout(settings.kb_about ?? "");
+    setServices(settings.kb_services ?? "");
+    setHoursDesc(settings.kb_hours_description ?? "");
+    setRateRegular(settings.kb_rate_regular ?? "");
+    setRateAfterHours(settings.kb_rate_after_hours ?? "");
+    setRateMaintenance(settings.kb_rate_maintenance ?? "");
+    setExtra(settings.kb_extra ?? "");
+  }, [settings]);
+
+  async function handleSave() {
+    setSaving(true); setSaved(false); setSaveError(null);
+    try {
+      await api.updateTenantSettings(token, tenantId, {
+        kb_about: about || undefined,
+        kb_services: services || undefined,
+        kb_hours_description: hoursDesc || undefined,
+        kb_rate_regular: rateRegular || undefined,
+        kb_rate_after_hours: rateAfterHours || undefined,
+        kb_rate_maintenance: rateMaintenance || undefined,
+        kb_extra: extra || undefined,
+      } as any);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      setSaveError("Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+        <Building2 size={15} className="text-slate-400" />
+        <h2 className="text-sm font-semibold text-slate-700">Business info</h2>
+        <span className="ml-auto text-xs text-slate-400">The AI uses this to answer customer questions</span>
+      </div>
+      <div className="px-6 py-5 space-y-4">
+        {isLoading ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : (
+          <>
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1.5">About your company</label>
+              <textarea
+                rows={3}
+                placeholder="e.g. Smith HVAC has served the Dallas area since 2005, specialising in residential and light commercial HVAC."
+                value={about}
+                onChange={(e) => setAbout(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1.5">Services offered</label>
+              <textarea
+                rows={2}
+                placeholder="e.g. AC installation, furnace repair, duct cleaning, maintenance contracts, heat pump installation."
+                value={services}
+                onChange={(e) => setServices(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1.5">Business hours <span className="font-normal text-slate-400">(plain English for the AI to quote)</span></label>
+              <input
+                type="text"
+                placeholder="e.g. Monday – Friday 8 am – 5 pm, Saturday 9 am – 2 pm, closed Sundays."
+                value={hoursDesc}
+                onChange={(e) => setHoursDesc(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Regular rate</label>
+                <input
+                  type="text"
+                  placeholder="e.g. $95/hr"
+                  value={rateRegular}
+                  onChange={(e) => setRateRegular(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">After-hours rate</label>
+                <input
+                  type="text"
+                  placeholder="e.g. $145/hr"
+                  value={rateAfterHours}
+                  onChange={(e) => setRateAfterHours(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Maintenance rate <span className="font-normal text-slate-400">(optional)</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. $75/hr"
+                  value={rateMaintenance}
+                  onChange={(e) => setRateMaintenance(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1.5">Extra details <span className="font-normal text-slate-400">(optional)</span></label>
+              <textarea
+                rows={2}
+                placeholder="Anything else the AI should know — service area, warranty policy, payment methods, etc."
+                value={extra}
+                onChange={(e) => setExtra(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+              />
+            </div>
+          </>
+        )}
+      </div>
+      <div className="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={saving || isLoading}
+          className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60"
+        >
+          <Save size={14} />{saving ? "Saving…" : "Save"}
+        </button>
+        {saved && <p className="text-sm text-green-600 font-medium">Saved!</p>}
+        {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+      </div>
+    </div>
+  );
+}
 
 function fmt(ts: string) {
   return new Date(ts).toLocaleDateString(undefined, { dateStyle: "medium" });
@@ -19,13 +177,15 @@ function truncate(s: string, n = 140) {
 export default function KnowledgeBasePage() {
   const { data: session } = useSession();
   const token = (session as any)?.accessToken ?? "";
+  const tenantId = decodeTenantId(token);
 
   const { data: chunks, isLoading, mutate } = useSWR(
     token ? ["kb", token] : null,
-    ([, t]) => api.kbChunks(t, TENANT_ID)
+    ([, t]) => api.kbChunks(t, tenantId)
   );
 
   const [uploading, setUploading] = useState(false);
+
   const [uploadResult, setUploadResult] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -47,7 +207,7 @@ export default function KnowledgeBasePage() {
     setUploadError(null);
 
     try {
-      const res = await api.uploadKbFile(token, TENANT_ID, file);
+      const res = await api.uploadKbFile(token, tenantId, file);
       setUploadResult(`"${res.filename}" added — ${res.chunks_added} chunks ingested.`);
       mutate();
     } catch (e: any) {
@@ -74,10 +234,11 @@ export default function KnowledgeBasePage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Knowledge Base</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Upload documents so the AI agent can answer questions about your business.
-          Supports PDF, .txt, and .md files.
+          Tell the AI about your business, or upload documents. Both sources are used when answering customer questions.
         </p>
       </div>
+
+      <BusinessInfoCard token={token} />
 
       {/* Upload area */}
       <div

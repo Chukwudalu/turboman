@@ -39,6 +39,11 @@ _client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
 
+async def _get_tenant_phone(tenant_id: str) -> str | None:
+    res = db.table("tenants").select("phone").eq("id", tenant_id).single().execute()
+    return res.data.get("phone") if res.data else None
+
+
 async def trigger_oncall_dispatch(
     *,
     tenant_id: str,
@@ -49,6 +54,11 @@ async def trigger_oncall_dispatch(
     notification_method: str = "both",
     is_emergency: bool = True,
 ) -> None:
+    from_phone = await _get_tenant_phone(tenant_id)
+    if not from_phone:
+        logger.error("Tenant has no provisioned phone number — on-call dispatch aborted", tenant_id=tenant_id)
+        return
+
     techs = await list_oncall_technicians(tenant_id, role="tech")
     if not techs:
         # No techs — try managers directly
@@ -59,13 +69,13 @@ async def trigger_oncall_dispatch(
         dispatch = await create_dispatch(tenant_id, service_request_id)
         await _dispatch_to_contact(dispatch["id"], managers[0], method=notification_method,
                                    service_type=service_type, address=address, customer_phone=customer_phone,
-                                   is_emergency=is_emergency)
+                                   is_emergency=is_emergency, from_phone=from_phone)
         return
 
     dispatch = await create_dispatch(tenant_id, service_request_id)
     await _dispatch_to_contact(dispatch["id"], techs[0], method=notification_method,
                                service_type=service_type, address=address, customer_phone=customer_phone,
-                               is_emergency=is_emergency)
+                               is_emergency=is_emergency, from_phone=from_phone)
 
 
 async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: bool = False) -> None:
@@ -96,12 +106,17 @@ async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: boo
 
     fallback_delay = ctx.get("fallback_delay_minutes", 5)
 
+    from_phone = await _get_tenant_phone(ctx["tenant_id"])
+    if not from_phone:
+        logger.error("Tenant has no provisioned phone number — on-call dispatch aborted", tenant_id=ctx["tenant_id"])
+        return
+
     if next_idx < len(contacts_in_role):
         await _dispatch_to_contact(
             dispatch_id, contacts_in_role[next_idx], method=method,
             service_type=ctx["service_type"], address=ctx["address"],
             customer_phone=ctx["customer_phone"],
-            any_declined=declined, is_emergency=is_emergency,
+            any_declined=declined, is_emergency=is_emergency, from_phone=from_phone,
         )
     elif current_role == "tech":
         managers = await list_oncall_technicians(ctx["tenant_id"], role="manager")
@@ -111,7 +126,7 @@ async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: boo
                 dispatch_id, managers[0], method=method,
                 service_type=ctx["service_type"], address=ctx["address"],
                 customer_phone=ctx["customer_phone"],
-                any_declined=declined, is_emergency=is_emergency,
+                any_declined=declined, is_emergency=is_emergency, from_phone=from_phone,
             )
         else:
             await _exhaust_dispatch(dispatch_id, customer_phone=ctx["customer_phone"], any_declined=declined, delay_minutes=fallback_delay)
@@ -129,6 +144,7 @@ async def _dispatch_to_contact(
     customer_phone: str | None,
     any_declined: bool = False,
     is_emergency: bool = True,
+    from_phone: str | None = None,
 ) -> None:
     effective_method = method or "both"
     address_str = f" at {address}" if address else ""
@@ -155,7 +171,7 @@ async def _dispatch_to_contact(
                 f"{label} — {service_type}{address_str}.{customer_str} "
                 f"Reply YES to acknowledge, or answer the incoming call. (Turboman)"
             )
-        if await send_sms(tech["phone"], sms_body):
+        if await send_sms(tech["phone"], sms_body, from_phone=from_phone):
             notified = True
 
     if effective_method in ("voice", "both"):
@@ -169,7 +185,7 @@ async def _dispatch_to_contact(
                     None,
                     lambda: _client.calls.create(
                         to=tech["phone"],
-                        from_=settings.twilio_phone_number,
+                        from_=from_phone,
                         url=f"{base}/oncall-call-start?dispatch_id={dispatch_id}&tech_id={tech['id']}",
                         status_callback=f"{base}/oncall-call-status?dispatch_id={dispatch_id}&tech_id={tech['id']}",
                         status_callback_event=["completed"],

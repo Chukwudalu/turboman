@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Twilio
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
-    twilio_phone_number: str = ""
+    twilio_auto_provision: bool = False
 
     # Deepgram
     deepgram_api_key: str = ""
@@ -44,6 +44,11 @@ class Settings(BaseSettings):
 
     # Public base URL used to build Twilio callback URLs (e.g. https://xxx.ngrok-free.app)
     base_url: str = ""
+
+    # Email (Resend)
+    resend_api_key: str = ""
+    email_from: str = "Turboman <noreply@yourdomain.com>"
+    frontend_url: str = "http://localhost:3000"
 
     # Error monitoring
     sentry_dsn: str = ""

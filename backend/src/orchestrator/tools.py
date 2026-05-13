@@ -86,9 +86,15 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "reason": {"type": "string"},
-                "summary": {"type": "string", "description": "Brief summary of the conversation so far"},
+                "summary": {
+                    "type": "string",
+                    "description": (
+                        "Handoff brief for the human agent. Include: customer name, "
+                        "service address, and a one-sentence description of their inquiry."
+                    ),
+                },
             },
-            "required": ["reason"],
+            "required": ["reason", "summary"],
         },
     },
 ]

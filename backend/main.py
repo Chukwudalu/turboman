@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import redis.asyncio as aioredis
 import sentry_sdk
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -118,6 +119,14 @@ app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "https://turboman.io", "https://www.turboman.io"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Auth (login → JWT)
 app.include_router(auth_router)
 
@@ -159,6 +168,7 @@ async def incoming_call(request: Request):
     form = await request.form()
     caller = form.get("From", "")
     called = form.get("To", "")
+    logger.info("Incoming call received", caller=caller, called=called, all_params=dict(form))
 
     # If the caller is a known on-call technician, route to the callback
     # acknowledgment flow instead of the AI agent.
@@ -406,6 +416,73 @@ async def sms_incoming(request: Request, From: str = Form("")):
     return PlainTextResponse(
         '<?xml version="1.0"?><Response></Response>',
         media_type="application/xml",
+    )
+
+
+# ── Escalation whisper + no-answer fallback ────────────────────────────────────
+
+@app.post("/call-whisper", dependencies=[Depends(_verify_twilio)])
+async def call_whisper(request: Request, call_sid: str = Query(...)):
+    """Plays a briefing to the human agent the moment they pick up, before connecting to the caller."""
+    import json as _json
+    context_json = await request.app.state.redis.get(f"escalation:{call_sid}")
+    if context_json:
+        ctx = _json.loads(context_json)
+        name = ctx.get("name") or "unknown caller"
+        inquiry = ctx.get("inquiry") or "No details captured."
+        msg = (
+            f"Incoming transfer. Customer name: {name}. "
+            f"Inquiry: {inquiry} "
+            "You are now being connected to the customer."
+        )
+    else:
+        msg = "Incoming customer transfer. You are now being connected."
+
+    msg = msg.replace("&", "and").replace("<", "").replace(">", "")
+    return PlainTextResponse(
+        f'<?xml version="1.0" encoding="UTF-8"?><Response><Say>{msg}</Say></Response>',
+        media_type="text/xml",
+    )
+
+
+@app.post("/call-dial-action", dependencies=[Depends(_verify_twilio)])
+async def call_dial_action(request: Request, call_sid: str = Query(...)):
+    """Called by Twilio after <Dial> completes — handles no-answer by logging a callback request."""
+    import json as _json
+    form = await request.form()
+    dial_status = form.get("DialCallStatus", "")
+
+    context_json = await request.app.state.redis.get(f"escalation:{call_sid}")
+    ctx = _json.loads(context_json) if context_json else {}
+    escalation_id = ctx.get("escalation_id")
+
+    if dial_status in ("no-answer", "busy", "failed", "canceled"):
+        logger.info("Escalation agent did not answer — escalation stays pending", call_sid=call_sid)
+        return PlainTextResponse(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response>"
+            "<Say>I was unable to reach a team member right now. "
+            "Your inquiry has been logged and someone will call you back as soon as possible. "
+            "Thank you for calling. Goodbye!</Say>"
+            "<Hangup/>"
+            "</Response>",
+            media_type="text/xml",
+        )
+
+    # Agent answered — mark escalation as bridged
+    if dial_status == "completed" and escalation_id:
+        try:
+            db.table("escalations").update({"status": "bridged"}).eq("id", escalation_id).execute()
+        except Exception as e:
+            logger.error("Failed to mark escalation bridged", error=str(e))
+
+    return PlainTextResponse(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        "<Say>Thank you for your patience. A team member will reach out to you as soon as possible. Goodbye!</Say>"
+        "<Hangup/>"
+        "</Response>",
+        media_type="text/xml",
     )
 
 
