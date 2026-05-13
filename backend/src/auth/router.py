@@ -122,7 +122,7 @@ class RegisterRequest(BaseModel):
     password: str
 
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
+@router.post("/register", status_code=201)
 @limiter.limit("5/minute")
 async def register(request: Request, body: RegisterRequest):
     err = _validate_password(body.password)
@@ -232,7 +232,6 @@ async def verify_email(token: str):
 
     db.table("users").update({
         "email_verified": True,
-        "verification_token": None,
     }).eq("verification_token", token).execute()
 
     return {"message": "Email verified successfully. You can now log in."}

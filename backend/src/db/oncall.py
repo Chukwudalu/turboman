@@ -88,7 +88,7 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
         .select(
             "status, tenant_id, "
             "service_requests(service_type, address, is_emergency, "
-            "  tenants(name, oncall_escalation_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes), "
+            "  tenants(name, phone, oncall_escalation_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes), "
             "  customers(phone, name))"
         )
         .eq("id", dispatch_id)
@@ -106,6 +106,7 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
     return {
         "dispatch_status": d["status"],
         "tenant_id": d["tenant_id"],
+        "tenant_phone": tenant.get("phone"),
         "company_name": tenant.get("name", "the company"),
         "service_type": sr.get("service_type", "emergency service"),
         "address": sr.get("address"),

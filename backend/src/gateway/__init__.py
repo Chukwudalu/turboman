@@ -254,7 +254,7 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
             if name == "book_job" and result.get("success") and state.customer:
                 phone = state.customer.get("phone")
                 if phone:
-                    await send_confirmation_sms(phone, result["message"])
+                    await send_confirmation_sms(phone, result["message"], state.tenant.get("phone"))
             if name == "escalate_to_human":
                 state.escalate_summary = action["input"].get("summary", "")
 

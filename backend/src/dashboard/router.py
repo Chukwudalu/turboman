@@ -246,7 +246,7 @@ _VALID_STATUSES = {"pending", "reschedule_requested", "scheduled", "in_progress"
 
 
 @router.patch("/service-requests/{request_id}")
-async def update_request_status(request_id: str, body: StatusUpdate, _: str = Depends(_get_tenant_id)):
+async def update_request_status(request_id: str, body: StatusUpdate, tenant_id: str = Depends(_get_tenant_id)):
     """
     Update a service request from the dashboard.
     When status is set to 'scheduled', an SMS confirmation is automatically sent.
@@ -281,6 +281,8 @@ async def update_request_status(request_id: str, body: StatusUpdate, _: str = De
             customer = request.get("customers") or {}
             phone = customer.get("phone")
             if phone:
+                tenant_row = db.table("tenants").select("phone").eq("id", tenant_id).single().execute()
+                from_phone = (tenant_row.data or {}).get("phone")
                 service = request["service_type"]
                 date = body.scheduled_date or request.get("scheduled_date", "")
                 time = body.scheduled_time or request.get("scheduled_time", "")
@@ -290,7 +292,7 @@ async def update_request_status(request_id: str, body: StatusUpdate, _: str = De
                     f"Your {service} appointment has been confirmed{date_str}{time_str}. "
                     "Reply STOP to opt out."
                 )
-                await send_confirmation_sms(phone, msg)
+                await send_confirmation_sms(phone, msg, from_phone)
 
     return updated
 
@@ -549,13 +551,16 @@ async def remove_oncall_technician(tech_id: str, _: str = Depends(_get_tenant_id
 async def list_escalations(tenant_id: str = Depends(_get_tenant_id)):
     result = (
         db.table("escalations")
-        .select("*, customers(name, phone)")
+        .select("*, customers(name, phone), calls(id)")
         .eq("tenant_id", tenant_id)
         .order("created_at", desc=True)
         .limit(100)
         .execute()
     )
-    return result.data or []
+    rows = result.data or []
+    for row in rows:
+        row["call_id"] = (row.pop("calls") or {}).get("id")
+    return rows
 
 
 class EscalationUpdate(BaseModel):
@@ -586,12 +591,14 @@ async def update_escalation(
     db.table("escalations").update(update).eq("id", escalation_id).execute()
     result = (
         db.table("escalations")
-        .select("*, customers(name, phone)")
+        .select("*, customers(name, phone), calls(id)")
         .eq("id", escalation_id)
         .single()
         .execute()
     )
-    return result.data
+    row = result.data or {}
+    row["call_id"] = (row.pop("calls", None) or {}).get("id")
+    return row
 
 
 @router.post("/close-account")

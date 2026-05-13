@@ -61,7 +61,11 @@ async def _poll_pending_notifications() -> None:
                         db.table("pending_notifications").update({"sent": True}).eq("id", notif["id"]).execute()
                         logger.info("Dispatch acknowledged — skipping fallback SMS", dispatch_id=notif["dispatch_id"])
                         continue
-                await send_sms(notif["phone"], notif["message"])
+                from_phone: str | None = None
+                if notif.get("dispatch_id"):
+                    ctx = await get_dispatch_context(notif["dispatch_id"])
+                    from_phone = (ctx or {}).get("tenant_phone")
+                await send_sms(notif["phone"], notif["message"], from_phone)
                 db.table("pending_notifications").update({"sent": True}).eq("id", notif["id"]).execute()
                 logger.info("Fallback SMS sent", phone=notif["phone"])
         except Exception as e:
@@ -368,6 +372,7 @@ async def oncall_call_eta(
         await send_sms(
             ctx["customer_phone"],
             f"Good news! A technician is on their way for your {service} emergency.{eta_str} They will contact you shortly. (Turboman)",
+            ctx.get("tenant_phone"),
         )
         logger.info("Customer notified of oncall acknowledgment", dispatch_id=dispatch_id)
 

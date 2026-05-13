@@ -34,7 +34,7 @@ async def route_action(
         result = await handler(inputs, tenant=tenant, customer=customer, call_id=call_id)
     except Exception as e:
         logger.error("Action failed", tool=tool_name, error=str(e))
-        result = {"success": False, "error": "Action failed — please try again or speak to a human."}
+        result = {"success": False, "error": "I wasn't able to log that request. Could you repeat the details?"}
 
     if call_id:
         try:
