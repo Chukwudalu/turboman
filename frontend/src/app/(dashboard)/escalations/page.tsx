@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 import { api, type Escalation, type EscalationStatus } from "@/lib/api";
-import { PhoneForwarded } from "lucide-react";
+import { PhoneForwarded, FileText } from "lucide-react";
 
 function StatusBadge({ status }: { status: EscalationStatus }) {
   const styles: Record<EscalationStatus, string> = {
@@ -25,12 +26,12 @@ function StatusBadge({ status }: { status: EscalationStatus }) {
 
 export default function EscalationsPage() {
   const { data: session } = useSession();
-  const token = (session as any)?.accessToken ?? "";
+  const token = (session as any)?.accessToken as string ?? "";
   const [marking, setMarking] = useState<string | null>(null);
 
   const { data: escalations, isLoading, mutate } = useSWR<Escalation[]>(
     token ? ["escalations", token] : null,
-    ([, t]) => api.escalations(t),
+    ([, t]) => api.escalations(t as string),
     { refreshInterval: 20_000, revalidateOnFocus: false }
   );
 
@@ -107,8 +108,17 @@ export default function EscalationsPage() {
                   <td className="px-5 py-3.5 font-medium text-slate-800 whitespace-nowrap">
                     {e.customers?.name ?? e.customers?.phone ?? "Unknown"}
                   </td>
-                  <td className="px-5 py-3.5 text-slate-600 max-w-xs">
-                    <p className="line-clamp-2 text-sm">{e.summary ?? "—"}</p>
+                  <td className="px-5 py-3.5 text-slate-600 max-w-sm">
+                    <p className="text-sm whitespace-pre-wrap">{e.summary ?? "—"}</p>
+                    {e.call_id && (
+                      <Link
+                        href={`/calls/${e.call_id}`}
+                        className="mt-1 inline-flex items-center gap-1 text-xs text-brand hover:underline"
+                      >
+                        <FileText size={12} />
+                        View transcript
+                      </Link>
+                    )}
                   </td>
                   <td className="px-5 py-3.5">
                     <StatusBadge status={e.status} />
@@ -167,7 +177,16 @@ function EscalationRow({
           </span>
         </div>
         {e.summary && (
-          <p className="mt-1 text-sm text-slate-600 line-clamp-3">{e.summary}</p>
+          <p className="mt-1 text-sm text-slate-600 whitespace-pre-wrap">{e.summary}</p>
+        )}
+        {e.call_id && (
+          <Link
+            href={`/calls/${e.call_id}`}
+            className="mt-2 inline-flex items-center gap-1 text-xs text-brand hover:underline"
+          >
+            <FileText size={12} />
+            View full transcript
+          </Link>
         )}
       </div>
       <button

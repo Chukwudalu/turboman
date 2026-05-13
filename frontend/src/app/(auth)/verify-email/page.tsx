@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Zap, CheckCircle, XCircle, Loader } from "lucide-react";
@@ -11,8 +11,13 @@ export default function VerifyEmailPage() {
   const token = params.get("token");
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [message, setMessage] = useState("");
+  const called = useRef(false);
 
   useEffect(() => {
+    // Guard against React StrictMode double-invocation
+    if (called.current) return;
+    called.current = true;
+
     if (!token) {
       setStatus("error");
       setMessage("No verification token found. Please use the link from your email.");

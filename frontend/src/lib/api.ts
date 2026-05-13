@@ -140,6 +140,7 @@ export interface Escalation {
   id: string;
   status: EscalationStatus;
   summary: string | null;
+  call_id: string | null;
   created_at: string;
   handled_at: string | null;
   customers: { name: string | null; phone: string } | null;
