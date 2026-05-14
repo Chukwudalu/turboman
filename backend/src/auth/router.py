@@ -31,7 +31,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _ALGORITHM = "HS256"
 _ACCESS_TOKEN_EXPIRE_MINUTES = 60
 _REFRESH_TOKEN_EXPIRE_DAYS = 7
-_TRIAL_DAYS = 60
+_TRIAL_DAYS = 30
 
 _bearer = HTTPBearer()
 

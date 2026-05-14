@@ -86,7 +86,7 @@ function Hero() {
 
       <div className="relative max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 bg-gradient-to-r from-brand/10 to-violet-500/10 text-brand border border-brand/20 rounded-full px-3.5 py-1.5 text-xs font-semibold mb-8">
-          <Zap size={12} className="text-brand" /> Free 60-day trial — no credit card required
+          <Zap size={12} className="text-brand" /> Free 30-day trial — no credit card required
         </div>
         <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-tight mb-6">
           Your AI Customer Service<br />
@@ -113,7 +113,7 @@ function Hero() {
           </a>
         </div>
         <p className="mt-6 text-xs text-slate-400">
-          Free for 60 days. No setup fees. Cancel any time.
+          Free for 30 days. No setup fees. Cancel any time.
         </p>
       </div>
 
@@ -310,14 +310,14 @@ function Pricing() {
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-3xl font-bold mb-4">Simple pricing</h2>
-          <p className="text-slate-500 max-w-xl mx-auto">Try everything free for 60 days. No credit card needed.</p>
+          <p className="text-slate-500 max-w-xl mx-auto">Try everything free for 30 days. No credit card needed.</p>
         </div>
         <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
           {/* Trial */}
           <div className="bg-white rounded-2xl border-2 border-slate-200 p-8 shadow-sm relative">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Free trial</p>
             <p className="text-4xl font-bold mb-1">$0</p>
-            <p className="text-sm text-slate-500 mb-6">for 60 days, then $149/mo</p>
+            <p className="text-sm text-slate-500 mb-6">for 30 days, then $199/mo</p>
             <Link
               href="/register"
               className="block w-full text-center bg-slate-900 text-white font-semibold py-3 rounded-xl hover:bg-slate-800 transition-colors mb-6"
@@ -343,7 +343,7 @@ function Pricing() {
                 <p className="text-xs font-bold text-blue-200 uppercase tracking-widest">Pro</p>
                 <span className="text-xs font-semibold bg-amber-400 text-amber-900 px-2 py-0.5 rounded-full">Most popular</span>
               </div>
-              <p className="text-4xl font-bold mb-1">$149</p>
+              <p className="text-4xl font-bold mb-1">$199</p>
               <p className="text-sm text-blue-200 mb-6">per month, billed monthly</p>
               <Link
                 href="/register"
