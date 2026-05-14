@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections.abc import Callable, AsyncGenerator
 import httpx
+import sentry_sdk
 from src.config import settings
 from src.utils.logger import logger
 
@@ -49,6 +50,7 @@ async def stream_tts(
             on_done()
 
     except Exception as e:
+        sentry_sdk.capture_exception(e)
         logger.error("Cartesia TTS error", error=str(e))
         if on_error:
             on_error(e)

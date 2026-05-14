@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 from collections.abc import Callable
+import sentry_sdk
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 from src.config import settings
 from src.utils.logger import logger
@@ -65,6 +66,8 @@ class STTStream:
     async def _handle_error(self, _client=None, error=None, **kwargs):
         if error is None:
             error = kwargs.get("error", str(kwargs))
+        exc = error if isinstance(error, Exception) else Exception(f"Deepgram STT error: {error}")
+        sentry_sdk.capture_exception(exc)
         logger.error("Deepgram error", error=str(error))
         if self._on_error:
             self._on_error(error)

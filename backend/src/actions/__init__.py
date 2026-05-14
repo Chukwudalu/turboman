@@ -1,3 +1,5 @@
+import sentry_sdk
+
 from src.actions.book_job import book_job
 from src.actions.reschedule_job import reschedule_job
 from src.actions.get_status import get_status
@@ -33,6 +35,7 @@ async def route_action(
     try:
         result = await handler(inputs, tenant=tenant, customer=customer, call_id=call_id)
     except Exception as e:
+        sentry_sdk.capture_exception(e)
         logger.error("Action failed", tool=tool_name, error=str(e))
         result = {"success": False, "error": "I wasn't able to log that request. Could you repeat the details?"}
 

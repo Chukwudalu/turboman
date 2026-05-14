@@ -1,3 +1,5 @@
+import * as Sentry from "@sentry/nextjs";
+
 const BASE = "/api/backend";
 
 async function req<T>(path: string, token: string, init?: RequestInit): Promise<T> {
@@ -9,7 +11,13 @@ async function req<T>(path: string, token: string, init?: RequestInit): Promise<
       ...init?.headers,
     },
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const err = new Error(`${res.status} ${res.statusText}`);
+    if (res.status >= 500) {
+      Sentry.captureException(err, { extra: { path, status: res.status } });
+    }
+    throw err;
+  }
   return res.json();
 }
 

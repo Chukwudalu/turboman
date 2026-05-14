@@ -78,6 +78,8 @@ class Settings(BaseSettings):
         missing = [name for name, val in required if not val]
         if missing and self.env == "production":
             raise ValueError(f"Missing required env vars: {', '.join(missing)}")
+        if self.env == "production" and self.jwt_secret == "change-me-in-production":
+            raise ValueError("JWT_SECRET must be changed from the default before running in production")
         return self
 
     class Config:

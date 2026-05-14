@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import sentry_sdk
 from twilio.rest import Client
 
 from src.config import settings
@@ -198,6 +199,16 @@ async def _dispatch_to_contact(
                 logger.error("Failed to initiate oncall call", name=tech["name"], phone=tech["phone"], error=str(e))
 
     if not notified:
+        sentry_sdk.capture_message(
+            "Dispatch notification not sent — no SMS or call reached the tech",
+            level="error",
+            extras={
+                "dispatch_id": dispatch_id,
+                "tech_name": tech["name"],
+                "phone": tech["phone"],
+                "method": effective_method,
+            },
+        )
         logger.error(
             "Dispatch created but NO notification sent — check tech phone format (must be E.164 e.g. +12025551234) "
             "and Twilio account permissions (trial accounts can only reach verified numbers)",
@@ -221,9 +232,19 @@ async def _dispatch_to_contact(
 async def _exhaust_dispatch(dispatch_id: str, *, customer_phone: str | None, any_declined: bool = False, delay_minutes: int = 5) -> None:
     if any_declined:
         await reject_dispatch(dispatch_id)
+        sentry_sdk.capture_message(
+            "On-call dispatch rejected — all contacts declined",
+            level="error",
+            extras={"dispatch_id": dispatch_id},
+        )
         logger.warning("All on-call contacts declined the job", dispatch_id=dispatch_id)
     else:
         await fail_dispatch(dispatch_id)
+        sentry_sdk.capture_message(
+            "On-call dispatch failed — all contacts unreachable",
+            level="error",
+            extras={"dispatch_id": dispatch_id},
+        )
         logger.warning("All on-call contacts were unreachable", dispatch_id=dispatch_id)
 
     if not customer_phone:

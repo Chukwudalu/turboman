@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from fastapi import WebSocket, WebSocketDisconnect
 from twilio.rest import Client as TwilioClient
 
+import sentry_sdk
+
 from src.config import settings
 from src.db.queries import create_call, create_escalation, end_call, get_tenant_by_phone, upsert_customer
 from src.db.rag import search_kb
@@ -130,6 +132,7 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
             asyncio.ensure_future(_stop_speaking(websocket, state))
 
     def on_stt_error(e: Exception):
+        sentry_sdk.capture_exception(e)
         logger.error("STT error — escalating to human", error=str(e))
         _cancel_turn(state)
         _cancel_debounce(state)
@@ -186,6 +189,15 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
             duration = int(time.time() - state.start_time)
             transcript = "\n".join(state.transcript_lines)
             await end_call(state.call_record["id"], "completed", duration, transcript)
+        sentry_sdk.add_breadcrumb(
+            message="Call ended",
+            data={
+                "call_sid": state.call_sid,
+                "outcome": "escalated" if state.is_escalated else "completed",
+                "duration_s": int(time.time() - state.start_time),
+                "turns": len(state.history),
+            },
+        )
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -217,6 +229,14 @@ async def _on_call_start(
     caller_phone = params.get("from", "unknown")
     state.customer = await upsert_customer(state.tenant["id"], caller_phone)
     state.call_record = await create_call(state.tenant["id"], state.customer["id"], state.call_sid)
+
+    sentry_sdk.set_tag("call_sid", state.call_sid)
+    sentry_sdk.set_tag("tenant_id", state.tenant.get("id", ""))
+    sentry_sdk.set_context("call", {
+        "call_sid": state.call_sid,
+        "tenant": state.tenant.get("name", "unknown"),
+        "customer_phone": caller_phone,
+    })
 
     name = state.customer.get("name")
     if name:
@@ -272,6 +292,7 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            sentry_sdk.capture_exception(e)
             logger.error("LLM turn failed", error=str(e))
             await _speak_and_wait(websocket, state,
                 "I'm sorry, I had a technical issue. Let me connect you with someone who can help.")

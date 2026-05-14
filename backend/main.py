@@ -17,10 +17,18 @@ from src.utils.ratelimit import limiter
 from src.config import settings
 
 if settings.sentry_dsn:
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.env,
-        traces_sample_rate=0.05,
+        traces_sample_rate=0.1,
+        profiles_sample_rate=0.1,
+        send_default_pii=False,
+        integrations=[
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(transaction_style="endpoint"),
+        ],
     )
 from src.dashboard.router import router as dashboard_router
 from src.db import db
