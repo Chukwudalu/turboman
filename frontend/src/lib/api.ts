@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { signOut } from "next-auth/react";
 
 const BASE = "/api/backend";
 
@@ -12,6 +13,10 @@ async function req<T>(path: string, token: string, init?: RequestInit): Promise<
     },
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      await signOut({ callbackUrl: "/login" });
+      throw new Error("Session expired");
+    }
     const err = new Error(`${res.status} ${res.statusText}`);
     if (res.status >= 500) {
       Sentry.captureException(err, { extra: { path, status: res.status } });
@@ -106,6 +111,7 @@ export interface OncallTechnician {
 export interface OncallDispatch {
   status: "dispatching" | "acknowledged" | "rejected" | "failed";
   created_at: string;
+  oncall_technicians: { name: string } | null;
 }
 
 export interface ServiceRequest {
@@ -175,7 +181,7 @@ export const api = {
 
   requests: (token: string, tenantId: string, status?: string, cursor?: string) =>
     req<Page<ServiceRequest>>(
-      `/dashboard/service-requests?tenant_id=${tenantId}${status ? `&status=${status}` : ""}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      `/dashboard/service-requests?tenant_id=${tenantId}&is_after_hours=false${status ? `&status=${status}` : ""}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
       token
     ),
 

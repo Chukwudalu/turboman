@@ -271,6 +271,10 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
         async def on_action(action: dict):
             name, result = action["name"], action["result"]
             logger.info("Action taken", name=name, success=result.get("success"))
+            if name == "save_customer_info" and result.get("success") and state.customer:
+                customer_name = action["input"].get("name")
+                if customer_name:
+                    state.customer["name"] = customer_name
             if name == "book_job" and result.get("success") and state.customer:
                 phone = state.customer.get("phone")
                 if phone:

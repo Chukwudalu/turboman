@@ -94,7 +94,7 @@ async def list_service_requests(
 ) -> tuple[list[dict], str | None]:
     select = "*, customers(name, phone, email)"
     if include_dispatches:
-        select += ", oncall_dispatches(status, created_at)"
+        select += ", oncall_dispatches(status, created_at, acknowledged_by_tech_id, oncall_technicians(name))"
     query = (
         db.table("service_requests")
         .select(select)

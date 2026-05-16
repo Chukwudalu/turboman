@@ -453,16 +453,23 @@ async def update_settings(body: TenantSettingsUpdate, request: Request, tenant_i
 async def list_voices(tenant_id: str = Depends(_get_tenant_id)):
     """Fetch available English voices from Cartesia and return name + id."""
     import httpx
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            "https://api.cartesia.ai/voices",
-            headers={
-                "X-API-Key": settings.cartesia_api_key,
-                "Cartesia-Version": "2024-06-10",
-            },
-        )
-        resp.raise_for_status()
-        all_voices = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://api.cartesia.ai/voices",
+                headers={
+                    "X-API-Key": settings.cartesia_api_key,
+                    "Cartesia-Version": "2024-06-10",
+                },
+            )
+            resp.raise_for_status()
+            all_voices = resp.json()
+    except httpx.HTTPStatusError as e:
+        logger.error("Cartesia voices API error", status=e.response.status_code)
+        raise HTTPException(status_code=502, detail="Failed to load voices from Cartesia. Check your API key.")
+    except Exception as e:
+        logger.error("Cartesia voices request failed", error=str(e))
+        raise HTTPException(status_code=502, detail="Could not reach Cartesia voice API.")
 
     voices = [
         {"id": v["id"], "name": v["name"], "description": v.get("description", "")}

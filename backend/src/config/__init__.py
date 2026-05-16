@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # Email (Resend)
     resend_api_key: str = ""
-    email_from: str = "Turboman <noreply@yourdomain.com>"
+    email_from: str = "Turboman <noreply@turboman.ca>"
     frontend_url: str = "http://localhost:3000"
 
     # Error monitoring

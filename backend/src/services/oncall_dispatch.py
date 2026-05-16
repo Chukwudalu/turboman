@@ -165,11 +165,13 @@ async def _dispatch_to_contact(
             sms_body = (
                 f"ESCALATION — All on-call technicians were unreachable. "
                 f"{label}: {service_type}{address_str}.{customer_str} "
+                f"Please contact the customer prior to attending to confirm the visit and service. "
                 f"Reply YES to acknowledge. (Turboman)"
             )
         else:
             sms_body = (
                 f"{label} — {service_type}{address_str}.{customer_str} "
+                f"Please contact the customer prior to attending to confirm the visit and service. "
                 f"Reply YES to acknowledge, or answer the incoming call. (Turboman)"
             )
         if await send_sms(tech["phone"], sms_body, from_phone=from_phone):

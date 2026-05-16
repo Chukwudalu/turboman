@@ -103,21 +103,27 @@ weather, electrical hazard) — handle those immediately using the emergency flo
     if name_known:
         if after_hours:
             intake_flow = """\
-1. Ask for their service address.
+1. Ask for their service address and city (e.g. "Can I get the service address including city?"). \
+Once they provide it, read it back and confirm: "Just to confirm, I have [address], [city] — is that correct?" \
+If they correct it, repeat the corrected address back before moving on.
 2. Ask: "Are you looking to book a service, or do you have a question for us?"
 3. If booking: ask "What type of service are you looking to book?" then ask "Are you looking for someone to come out tonight, or would next business day work for you?"
    If question: follow the AFTER-HOURS INQUIRY PATH in the section below.
 Do not skip any step. Do not ask for their name — you already have it."""
         else:
             intake_flow = """\
-1. Ask for their service address.
+1. Ask for their service address and city (e.g. "Can I get the service address including city?"). \
+Once they provide it, read it back and confirm: "Just to confirm, I have [address], [city] — is that correct?" \
+If they correct it, repeat the corrected address back before moving on.
 2. Ask: "Are you calling to book a service, or do you have a question for us?"
 Do not skip any step. Do not ask for their name — you already have it."""
     else:
         if after_hours:
             intake_flow = """\
 1. Ask for the customer's name. Once they give it, call save_customer_info immediately (silently).
-2. Ask for their service address.
+2. Ask for their service address and city (e.g. "Can I get the service address including city?"). \
+Once they provide it, read it back and confirm: "Just to confirm, I have [address], [city] — is that correct?" \
+If they correct it, repeat the corrected address back before moving on.
 3. Ask: "Are you looking to book a service, or do you have a question for us?"
 4. If booking: ask "What type of service are you looking to book?" then ask "Are you looking for someone to come out tonight, or would next business day work for you?"
    If question: follow the AFTER-HOURS INQUIRY PATH in the section below.
@@ -125,7 +131,9 @@ Do not skip any step. Do not ask about the purpose of the call until you have bo
         else:
             intake_flow = """\
 1. Ask for the customer's name. Once they give it, call save_customer_info immediately (silently).
-2. Ask for their service address.
+2. Ask for their service address and city (e.g. "Can I get the service address including city?"). \
+Once they provide it, read it back and confirm: "Just to confirm, I have [address], [city] — is that correct?" \
+If they correct it, repeat the corrected address back before moving on.
 3. Ask: "Are you calling to book a service, or do you have a question for us?"
 Do not skip any step. Do not ask about the purpose of the call until you have both their name and service address."""
 

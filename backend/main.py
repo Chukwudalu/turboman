@@ -115,7 +115,6 @@ async def _poll_dispatch_sms_timeouts() -> None:
 
 
 # ── App lifespan — shared resources ───────────────────────────────────────────
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(settings.redis_url, decode_responses=True)
@@ -133,7 +132,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://turboman.io", "https://www.turboman.io"],
+    allow_origins=["http://localhost:3000", "https://turboman.ca", "https://www.turboman.ca", "https://app.turboman.ca"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -256,12 +255,14 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
             f"Hello {name}. This is an urgent escalation call from {company}. "
             f"We have been unable to reach any on-call technicians for an after-hours {call_type} request. "
             f"A customer requires {service}{location}. "
+            f"If you accept, please notify the technician to contact the customer prior to attending to confirm the visit and service. "
             f"Can you coordinate a response tonight? Please say yes or no."
         )
     else:
         greeting = (
-            f"Hello {name}. This is an after-hours {call_type} call from {company}. "
+            f"Hello {name}. This is an {call_type} call from {company}. "
             f"A customer needs {service}{location}. "
+            f"If you accept, please contact the customer prior to attending to confirm the visit and service. "
             f"Are you available to attend tonight? Please say yes or no."
         )
 
@@ -327,6 +328,7 @@ async def oncall_callback(tech_id: str = Query(...)):
         f'<Gather input="speech" action="{action}" timeout="8" speechTimeout="3" language="en-US">'
         f"<Say>Hi {name}, thanks for calling back. "
         f"We still have an open after-hours {call_type} request for {service}{location}. "
+        f"If you accept, please contact the customer prior to attending to confirm the visit and service. "
         f"Are you available to attend tonight? Please say yes or no.</Say>"
         f"</Gather>"
         f'<Redirect method="POST">{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}&amp;no_input=1</Redirect>'

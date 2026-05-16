@@ -5,7 +5,6 @@ import useSWRInfinite from "swr/infinite";
 import Link from "next/link";
 import { ArrowUpRight, Siren, Clock, Sunrise, CheckCircle2, XCircle } from "lucide-react";
 import { api, type ServiceRequest, type OncallDispatch, type Page } from "@/lib/api";
-import { StatusBadge } from "@/components/status-badge";
 import { DateSelector } from "@/components/date-selector";
 import { filterByDate, todayStr } from "@/lib/date-groups";
 import { decodeTenantId } from "@/lib/jwt";
@@ -23,7 +22,7 @@ function DispatchBadge({ dispatches }: { dispatches: OncallDispatch[] | null }) 
 
   if (d.status === "acknowledged") return (
     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-      <CheckCircle2 size={11} /> Accepted
+      <CheckCircle2 size={11} /> Accepted{d.oncall_technicians?.name ? ` · ${d.oncall_technicians.name}` : ""}
     </span>
   );
   if (d.status === "rejected") return (
@@ -143,7 +142,6 @@ function NonEmergencyTable({
             <tr>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Service</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Dispatch</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Address</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Time</th>
@@ -153,10 +151,10 @@ function NonEmergencyTable({
           </thead>
           <tbody className="divide-y divide-slate-100">
             {isLoading && (
-              <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-400">Loading…</td></tr>
+              <tr><td colSpan={7} className="px-5 py-10 text-center text-slate-400">Loading…</td></tr>
             )}
             {!isLoading && !visible.length && (
-              <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-400">No non-emergency after-hours requests on this date</td></tr>
+              <tr><td colSpan={7} className="px-5 py-10 text-center text-slate-400">No non-emergency after-hours requests on this date</td></tr>
             )}
             {visible.map((r) => (
               <tr key={r.id} className={`hover:bg-slate-50/70 transition-colors ${r.next_morning_priority ? "bg-amber-50/40" : ""}`}>
@@ -172,7 +170,6 @@ function NonEmergencyTable({
                   )}
                 </td>
                 <td className="px-5 py-3.5 text-slate-700">{r.service_type}</td>
-                <td className="px-5 py-3.5"><StatusBadge status={r.status} /></td>
                 <td className="px-5 py-3.5">
                   <DispatchBadge dispatches={r.oncall_dispatches} />
                 </td>
