@@ -212,8 +212,8 @@ export default function RegisterPage() {
 
             <p className="text-xs text-slate-500 text-center leading-relaxed">
               By signing up you agree to our{" "}
-              <a href="#" className="underline">Terms of Service</a> and{" "}
-              <a href="#" className="underline">Privacy Policy</a>.
+              <Link href="/terms" className="underline">Terms of Service</Link> and{" "}
+              <Link href="/privacy" className="underline">Privacy Policy</Link>.
             </p>
           </form>
         </div>

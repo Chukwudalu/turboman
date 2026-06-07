@@ -1,7 +1,20 @@
 import * as Sentry from "@sentry/nextjs";
-import { signOut } from "next-auth/react";
+import { getSession, signOut } from "next-auth/react";
 
 const BASE = "/api/backend";
+
+export async function revokeAndSignOut() {
+  const session = await getSession();
+  const refreshToken = (session as any)?.refreshToken;
+  if (refreshToken) {
+    await fetch(`${BASE}/auth/logout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }).catch(() => {});
+  }
+  signOut({ callbackUrl: "/login" });
+}
 
 async function req<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -14,7 +27,7 @@ async function req<T>(path: string, token: string, init?: RequestInit): Promise<
   });
   if (!res.ok) {
     if (res.status === 401) {
-      await signOut({ callbackUrl: "/login" });
+      await revokeAndSignOut();
       throw new Error("Session expired");
     }
     const err = new Error(`${res.status} ${res.statusText}`);

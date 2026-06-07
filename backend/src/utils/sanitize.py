@@ -6,6 +6,12 @@ _INJECTION_PATTERNS = [
     re.compile(r"you are now", re.I),
     re.compile(r"disregard (your|the|all)", re.I),
     re.compile(r"forget (everything|all|your)", re.I),
+    re.compile(r"override\b.{0,30}\b(instructions|prompt|rules)", re.I),
+    re.compile(r"pretend (you are|to be|you're)", re.I),
+    re.compile(r"act as (a |an )?(?!if\b)", re.I),
+    re.compile(r"new instructions", re.I),
+    re.compile(r"do not follow", re.I),
+    re.compile(r"reveal.{0,20}\b(prompt|instructions|secret)", re.I),
 ]
 
 _HTML_TAG_RE = re.compile(r"<[^>]*>")

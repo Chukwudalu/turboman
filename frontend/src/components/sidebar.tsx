@@ -22,17 +22,17 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const path = usePathname();
   const { data: session } = useSession();
 
-  function handleSignOut() {
+  async function handleSignOut() {
     const refreshToken = (session as any)?.refreshToken;
     if (refreshToken) {
-      fetch(`${API_URL}/auth/logout`, {
+      await fetch(`${API_URL}/auth/logout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),
       }).catch(() => {});
     }
-    signOut({ callbackUrl: "/login" });
     onClose?.();
+    signOut({ callbackUrl: "/login" });
   }
 
   return (

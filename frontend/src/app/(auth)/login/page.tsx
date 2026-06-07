@@ -19,23 +19,12 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const check = await fetch("/api/backend/auth/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!check.ok) {
-        const data = await check.json().catch(() => ({}));
-        setError(data.detail ?? "Invalid email or password.");
-        return;
-      }
-
       const res = await signIn("credentials", { email, password, redirect: false });
-      if (res?.ok) {
+      if (res?.error) {
+        const msg = decodeURIComponent(res.error);
+        setError(msg === "CredentialsSignin" ? "Invalid email or password." : msg);
+      } else if (res?.ok) {
         router.push("/dashboard");
-      } else {
-        setError("Invalid email or password.");
       }
     } catch {
       setError("Something went wrong. Please try again.");

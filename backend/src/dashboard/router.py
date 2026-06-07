@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import anthropic
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.auth.router import decode_token
 from src.config import settings
@@ -350,6 +350,8 @@ async def upload_kb_file(tenant_id: str = Depends(_get_tenant_id), file: UploadF
 
     filename = file.filename or "upload"
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if ext not in ("pdf", "txt", "md"):
+        raise HTTPException(status_code=422, detail="Only PDF, .txt, and .md files are supported")
     raw = await file.read(10 * 1024 * 1024 + 1)
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 10MB.")
@@ -386,10 +388,10 @@ class TenantSettingsUpdate(BaseModel):
     business_hours_start: str | None = None
     business_hours_end: str | None = None
     business_timezone: str | None = None
-    oncall_voice_timeout_minutes: int | None = None
-    oncall_sms_timeout_minutes: int | None = None
-    oncall_notification_method: str | None = None  # voice | sms | both
-    oncall_fallback_delay_minutes: int | None = None
+    oncall_voice_timeout_minutes: int | None = Field(None, ge=1, le=60)
+    oncall_sms_timeout_minutes: int | None = Field(None, ge=1, le=60)
+    oncall_notification_method: str | None = Field(None, pattern=r"^(voice|sms|both)$")
+    oncall_fallback_delay_minutes: int | None = Field(None, ge=1, le=60)
     escalation_phone: E164Phone | None = None
     escalation_phone_after_hours: E164Phone | None = None
     confirm_name_spelling: bool | None = None

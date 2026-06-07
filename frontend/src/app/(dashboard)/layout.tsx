@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Menu, Zap, AlertTriangle } from "lucide-react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import useSWR from "swr";
 import Sidebar from "@/components/sidebar";
-import { api } from "@/lib/api";
+import { api, revokeAndSignOut } from "@/lib/api";
 import { decodeTenantId } from "@/lib/jwt";
 
 function TrialBanner({ token }: { token: string }) {
@@ -50,7 +50,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if ((session as any)?.error === "RefreshAccessTokenError") {
-      signOut({ callbackUrl: "/login" });
+      revokeAndSignOut();
     }
   }, [session]);
 

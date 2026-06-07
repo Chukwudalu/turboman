@@ -35,6 +35,7 @@ _REFRESH_TOKEN_EXPIRE_DAYS = 7
 _TRIAL_DAYS = 30
 
 _bearer = HTTPBearer()
+_DUMMY_HASH = bcrypt.hashpw(b"dummy-timing-safe", bcrypt.gensalt()).decode()
 
 
 # ── Token helpers ──────────────────────────────────────────────────────────────
@@ -184,7 +185,10 @@ async def login(request: Request, body: LoginRequest):
     result = await db.table("users").select("email, password_hash, tenant_id, role, active, email_verified").eq("email", body.email).execute()
     user = result.data[0] if result.data else None
 
-    if not user or not user.get("active") or not bcrypt.checkpw(body.password.encode(), user["password_hash"].encode()):
+    password_hash = user["password_hash"] if user else _DUMMY_HASH
+    password_ok = bcrypt.checkpw(body.password.encode(), password_hash.encode())
+
+    if not user or not user.get("active") or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.get("email_verified"):
@@ -198,7 +202,8 @@ async def login(request: Request, body: LoginRequest):
 # ── Public: refresh / logout ───────────────────────────────────────────────────
 
 @router.post("/refresh")
-async def refresh(body: RefreshRequest):
+@limiter.limit("30/minute")
+async def refresh(request: Request, body: RefreshRequest):
     result = await db.table("refresh_tokens").select("*").eq("token", body.refresh_token).eq("revoked", False).execute()
     row = result.data[0] if result.data else None
 
@@ -224,7 +229,8 @@ async def refresh(body: RefreshRequest):
 
 
 @router.post("/logout")
-async def logout(body: LogoutRequest):
+@limiter.limit("10/minute")
+async def logout(request: Request, body: LogoutRequest):
     await db.table("refresh_tokens").update({"revoked": True}).eq("token", body.refresh_token).execute()
     return {"ok": True}
 
@@ -232,7 +238,8 @@ async def logout(body: LogoutRequest):
 # ── Public: verify email ──────────────────────────────────────────────────────
 
 @router.get("/verify-email")
-async def verify_email(token: str):
+@limiter.limit("10/minute")
+async def verify_email(request: Request, token: str):
     result = await db.table("users").select("id, email_verified").eq("verification_token", token).execute()
     user = result.data[0] if result.data else None
 
@@ -243,6 +250,7 @@ async def verify_email(token: str):
 
     await db.table("users").update({
         "email_verified": True,
+        "verification_token": None,
     }).eq("verification_token", token).execute()
 
     return {"message": "Email verified successfully. You can now log in."}
@@ -297,11 +305,13 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="This reset link has expired. Please request a new one.")
 
     new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
-    await db.table("users").update({
+    update_result = await db.table("users").update({
         "password_hash": new_hash,
         "password_reset_token": None,
         "password_reset_expires_at": None,
-    }).eq("id", user["id"]).execute()
+    }).eq("id", user["id"]).eq("password_reset_token", body.token).execute()
+    if not update_result.data:
+        raise HTTPException(status_code=400, detail="This reset link has already been used.")
     return {"message": "Password updated successfully. You can now log in."}
 
 
@@ -313,7 +323,9 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/change-password")
+@limiter.limit("5/minute")
 async def change_password(
+    request: Request,
     body: ChangePasswordRequest,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ):

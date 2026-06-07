@@ -413,8 +413,8 @@ function Footer() {
           &copy; {new Date().getFullYear()} Turboman. All rights reserved.
         </p>
         <div className="flex gap-6 text-[13px] text-slate-500">
-          <a href="#" className="hover:text-slate-900 transition-colors">Privacy</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">Terms</a>
+          <Link href="/privacy" className="hover:text-slate-900 transition-colors">Privacy</Link>
+          <Link href="/terms" className="hover:text-slate-900 transition-colors">Terms</Link>
           <a href="mailto:hello@turboman.ca" className="hover:text-slate-900 transition-colors">Contact</a>
         </div>
       </div>

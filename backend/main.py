@@ -144,8 +144,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Secret"],
 )
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -154,6 +154,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
@@ -292,7 +294,7 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
     ctx = await get_dispatch_context(dispatch_id)
     tech = await get_tech_by_id(tech_id)
 
-    if not ctx or not tech or ctx["dispatch_status"] != "dispatching":
+    if not ctx or not tech or ctx["dispatch_status"] != "dispatching" or tech.get("tenant_id") != ctx["tenant_id"]:
         return _xml("<Say>This emergency has already been handled. Thank you.</Say><Hangup/>")
 
     base = settings.base_url.rstrip("/")
@@ -398,6 +400,11 @@ async def oncall_call_response(
     no_input: str = Query(""),
 ):
     """TwiML: handle yes/no availability answer."""
+    ctx = await get_dispatch_context(dispatch_id)
+    tech = await get_tech_by_id(tech_id)
+    if not ctx or not tech or tech.get("tenant_id") != ctx["tenant_id"]:
+        return _xml("<Say>This request is no longer active. Thank you.</Say><Hangup/>")
+
     form = await request.form()
     speech = form.get("SpeechResult", "").lower()
     available = not no_input and any(w in speech for w in ("yes", "yeah", "sure", "yep", "okay", "ok", "affirmative", "can", "will"))
@@ -425,10 +432,14 @@ async def oncall_call_eta(
     no_input: str = Query(""),
 ):
     """TwiML: capture ETA, acknowledge dispatch, notify customer."""
+    ctx = await get_dispatch_context(dispatch_id)
+    tech = await get_tech_by_id(tech_id)
+    if not ctx or not tech or tech.get("tenant_id") != ctx["tenant_id"]:
+        return _xml("<Say>This request is no longer active. Thank you.</Say><Hangup/>")
+
     form = await request.form()
     eta = form.get("SpeechResult", "").strip() if not no_input else ""
 
-    ctx = await get_dispatch_context(dispatch_id)
     await acknowledge_dispatch(dispatch_id, eta_text=eta or None, tech_id=tech_id)
 
     if ctx and ctx["customer_phone"]:
@@ -454,6 +465,11 @@ async def oncall_call_status(
     tech_id: str = Query(...),
 ):
     """Twilio status callback — logs unanswered calls. The timeout poller handles escalation."""
+    ctx = await get_dispatch_context(dispatch_id)
+    tech = await get_tech_by_id(tech_id)
+    if not ctx or not tech or tech.get("tenant_id") != ctx["tenant_id"]:
+        return PlainTextResponse("OK")
+
     form = await request.form()
     call_status = form.get("CallStatus", "")
 
