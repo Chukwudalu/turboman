@@ -237,6 +237,62 @@ async def verify_email(token: str):
     return {"message": "Email verified successfully. You can now log in."}
 
 
+# ── Public: forgot / reset password ──────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password(request: Request, body: ForgotPasswordRequest):
+    user = db.table("users").select("id, name, email").eq("email", body.email).execute()
+    if not user.data:
+        # Return success regardless to avoid email enumeration
+        return {"message": "If that email is registered, a reset link has been sent."}
+
+    u = user.data[0]
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    db.table("users").update({
+        "password_reset_token": token,
+        "password_reset_expires_at": expires_at,
+    }).eq("id", u["id"]).execute()
+
+    from src.services.email import send_password_reset_email
+    send_password_reset_email(u["email"], u["name"], token)
+    return {"message": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    err = _validate_password(body.new_password)
+    if err:
+        raise HTTPException(status_code=422, detail=err)
+
+    result = db.table("users").select("id, password_reset_expires_at").eq("password_reset_token", body.token).execute()
+    user = result.data[0] if result.data else None
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    expires = datetime.fromisoformat(user["password_reset_expires_at"].replace("Z", "+00:00"))
+    if expires < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="This reset link has expired. Please request a new one.")
+
+    new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    db.table("users").update({
+        "password_hash": new_hash,
+        "password_reset_token": None,
+        "password_reset_expires_at": None,
+    }).eq("id", user["id"]).execute()
+    return {"message": "Password updated successfully. You can now log in."}
+
+
 # ── Authenticated: change password ────────────────────────────────────────────
 
 class ChangePasswordRequest(BaseModel):

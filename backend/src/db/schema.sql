@@ -160,6 +160,9 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS oncall_fallback_delay_minutes     i
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS escalation_phone                  text DEFAULT '';
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS escalation_phone_after_hours      text DEFAULT '';
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token        text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at   timestamptz;
+
 -- ── Pending notifications (durable fallback SMS queue) ───────────────────────
 CREATE TABLE IF NOT EXISTS pending_notifications (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),

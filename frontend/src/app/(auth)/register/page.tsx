@@ -120,7 +120,7 @@ export default function RegisterPage() {
             Turboman
           </Link>
           <div className="inline-flex items-center gap-1.5 bg-brand/8 text-brand border border-brand/20 rounded-full px-3 py-1 text-xs font-semibold">
-            <Zap size={11} /> Free 60-day trial — no credit card
+            <Zap size={11} /> Free 30-day trial — no credit card
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mt-4">Create your account</h1>
           <p className="text-sm text-slate-500 mt-1">Set up your company in under a minute.</p>
