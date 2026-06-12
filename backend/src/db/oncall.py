@@ -6,7 +6,7 @@ from src.db import db
 
 
 async def list_oncall_technicians(tenant_id: str, role: str = "tech") -> list[dict]:
-    result = (
+    result = await (
         db.table("oncall_technicians")
         .select("*")
         .eq("tenant_id", tenant_id)
@@ -19,7 +19,7 @@ async def list_oncall_technicians(tenant_id: str, role: str = "tech") -> list[di
 
 
 async def get_tech_by_id(tech_id: str) -> dict | None:
-    result = (
+    result = await (
         db.table("oncall_technicians")
         .select("*")
         .eq("id", tech_id)
@@ -32,7 +32,7 @@ async def get_tech_by_id(tech_id: str) -> dict | None:
 async def create_oncall_technician(
     tenant_id: str, name: str, phone: str, email: str | None, priority: int, role: str = "tech"
 ) -> dict:
-    result = db.table("oncall_technicians").insert({
+    result = await db.table("oncall_technicians").insert({
         "tenant_id": tenant_id,
         "name": name,
         "phone": phone,
@@ -44,7 +44,7 @@ async def create_oncall_technician(
 
 
 async def update_oncall_technician(tech_id: str, updates: dict) -> dict:
-    result = (
+    result = await (
         db.table("oncall_technicians")
         .update(updates)
         .eq("id", tech_id)
@@ -54,11 +54,11 @@ async def update_oncall_technician(tech_id: str, updates: dict) -> dict:
 
 
 async def delete_oncall_technician(tech_id: str) -> None:
-    db.table("oncall_technicians").delete().eq("id", tech_id).execute()
+    await db.table("oncall_technicians").delete().eq("id", tech_id).execute()
 
 
 async def create_dispatch(tenant_id: str, service_request_id: str) -> dict:
-    result = db.table("oncall_dispatches").insert({
+    result = await db.table("oncall_dispatches").insert({
         "tenant_id": tenant_id,
         "service_request_id": service_request_id,
         "status": "dispatching",
@@ -67,7 +67,7 @@ async def create_dispatch(tenant_id: str, service_request_id: str) -> dict:
 
 
 async def get_dispatch(dispatch_id: str) -> dict | None:
-    result = (
+    result = await (
         db.table("oncall_dispatches")
         .select("*")
         .eq("id", dispatch_id)
@@ -83,7 +83,7 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
     dispatch status, service details, customer phone, company name,
     timeout, and notification method.
     """
-    result = (
+    result = await (
         db.table("oncall_dispatches")
         .select(
             "status, tenant_id, "
@@ -133,12 +133,12 @@ async def acknowledge_dispatch(
         updates["eta_text"] = eta_text
     if tech_id:
         updates["acknowledged_by_tech_id"] = tech_id
-    db.table("oncall_dispatches").update(updates).eq("id", dispatch_id).execute()
+    await db.table("oncall_dispatches").update(updates).eq("id", dispatch_id).execute()
 
 
 async def acknowledge_dispatch_for_tenant(tenant_id: str) -> bool:
     """Acknowledge the most recent dispatching record for a tenant (SMS reply flow)."""
-    result = (
+    result = await (
         db.table("oncall_dispatches")
         .select("id")
         .eq("tenant_id", tenant_id)
@@ -155,7 +155,7 @@ async def acknowledge_dispatch_for_tenant(tenant_id: str) -> bool:
 
 async def reject_dispatch(dispatch_id: str) -> None:
     """At least one tech was reached but declined. No one accepted the job."""
-    db.table("oncall_dispatches").update({
+    await db.table("oncall_dispatches").update({
         "status": "rejected",
         "resolved_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", dispatch_id).execute()
@@ -163,7 +163,7 @@ async def reject_dispatch(dispatch_id: str) -> None:
 
 async def fail_dispatch(dispatch_id: str) -> None:
     """Nobody answered — all contacts were unreachable."""
-    db.table("oncall_dispatches").update({
+    await db.table("oncall_dispatches").update({
         "status": "failed",
         "resolved_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", dispatch_id).execute()

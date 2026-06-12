@@ -26,7 +26,6 @@ from src.db import db
 from src.db.oncall import (
     create_dispatch,
     fail_dispatch,
-    get_dispatch,
     get_dispatch_context,
     get_tech_by_id,
     list_oncall_technicians,
@@ -38,10 +37,8 @@ from src.utils.logger import logger
 _client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
-
-
 async def _get_tenant_phone(tenant_id: str) -> str | None:
-    res = db.table("tenants").select("phone").eq("id", tenant_id).single().execute()
+    res = await db.table("tenants").select("phone").eq("id", tenant_id).single().execute()
     return res.data.get("phone") if res.data else None
 
 
@@ -62,7 +59,6 @@ async def trigger_oncall_dispatch(
 
     techs = await list_oncall_technicians(tenant_id, role="tech")
     if not techs:
-        # No techs — try managers directly
         managers = await list_oncall_technicians(tenant_id, role="manager")
         if not managers:
             logger.warning("No on-call contacts configured at all", tenant_id=tenant_id)
@@ -86,9 +82,21 @@ async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: boo
     declined=False means the call went unanswered.
     Moves to the next contact in the same role group, escalates to managers,
     or closes the dispatch as rejected/failed.
+
+    The next_tech_processing flag is set atomically before any work is done
+    to prevent two server instances from both escalating the same dispatch
+    when Twilio retries a status callback to a different instance.
     """
-    dispatch = await get_dispatch(dispatch_id)
-    if not dispatch or dispatch["status"] != "dispatching":
+    # Atomic claim — bail if dispatch is not in dispatching state or another instance claimed it
+    claim = await (
+        db.table("oncall_dispatches")
+        .update({"next_tech_processing": True})
+        .eq("id", dispatch_id)
+        .eq("status", "dispatching")
+        .eq("next_tech_processing", False)
+        .execute()
+    )
+    if not claim.data:
         return
 
     ctx = await get_dispatch_context(dispatch_id)
@@ -104,7 +112,6 @@ async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: boo
     next_idx = current_idx + 1
 
     is_emergency = ctx.get("is_emergency", True)
-
     fallback_delay = ctx.get("fallback_delay_minutes", 5)
 
     from_phone = await _get_tenant_phone(ctx["tenant_id"])
@@ -112,23 +119,23 @@ async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: boo
         logger.error("Tenant has no provisioned phone number — on-call dispatch aborted", tenant_id=ctx["tenant_id"])
         return
 
-    if next_idx < len(contacts_in_role):
+    async def _dispatch_next(contact):
+        # Reset flag before dispatching so the NEXT escalation can claim it
+        await db.table("oncall_dispatches").update({"next_tech_processing": False}).eq("id", dispatch_id).execute()
         await _dispatch_to_contact(
-            dispatch_id, contacts_in_role[next_idx], method=method,
+            dispatch_id, contact, method=method,
             service_type=ctx["service_type"], address=ctx["address"],
             customer_phone=ctx["customer_phone"],
             any_declined=declined, is_emergency=is_emergency, from_phone=from_phone,
         )
+
+    if next_idx < len(contacts_in_role):
+        await _dispatch_next(contacts_in_role[next_idx])
     elif current_role == "tech":
         managers = await list_oncall_technicians(ctx["tenant_id"], role="manager")
         if managers:
             logger.info("Escalating to management after techs exhausted", dispatch_id=dispatch_id)
-            await _dispatch_to_contact(
-                dispatch_id, managers[0], method=method,
-                service_type=ctx["service_type"], address=ctx["address"],
-                customer_phone=ctx["customer_phone"],
-                any_declined=declined, is_emergency=is_emergency, from_phone=from_phone,
-            )
+            await _dispatch_next(managers[0])
         else:
             await _exhaust_dispatch(dispatch_id, customer_phone=ctx["customer_phone"], any_declined=declined, delay_minutes=fallback_delay)
     else:
@@ -219,12 +226,13 @@ async def _dispatch_to_contact(
             method=effective_method,
             dispatch_id=dispatch_id,
         )
+        raise RuntimeError(f"Failed to notify on-call contact {tech['name']} via any method")
 
     if effective_method == "sms":
         ctx = await get_dispatch_context(dispatch_id)
         timeout = ctx["timeout_minutes"] if ctx else 10
         escalate_at = datetime.now(timezone.utc) + timedelta(minutes=timeout)
-        db.table("dispatch_sms_timeouts").insert({
+        await db.table("dispatch_sms_timeouts").insert({
             "dispatch_id": dispatch_id,
             "tech_id": tech["id"],
             "escalate_at": escalate_at.isoformat(),
@@ -232,6 +240,7 @@ async def _dispatch_to_contact(
 
 
 async def _exhaust_dispatch(dispatch_id: str, *, customer_phone: str | None, any_declined: bool = False, delay_minutes: int = 5) -> None:
+    await db.table("oncall_dispatches").update({"next_tech_processing": False}).eq("id", dispatch_id).execute()
     if any_declined:
         await reject_dispatch(dispatch_id)
         sentry_sdk.capture_message(
@@ -253,7 +262,7 @@ async def _exhaust_dispatch(dispatch_id: str, *, customer_phone: str | None, any
         return
 
     send_at = datetime.now(timezone.utc) + timedelta(minutes=delay_minutes)
-    db.table("pending_notifications").insert({
+    await db.table("pending_notifications").insert({
         "phone": customer_phone,
         "message": (
             "We were unable to reach our on-call team tonight. "

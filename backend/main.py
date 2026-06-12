@@ -6,6 +6,7 @@ import redis.asyncio as aioredis
 import sentry_sdk
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import PlainTextResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -61,12 +62,15 @@ async def _poll_pending_notifications() -> None:
         await asyncio.sleep(30)
         try:
             now = datetime.now(timezone.utc).isoformat()
-            result = db.table("pending_notifications").select("*").eq("sent", False).lte("send_at", now).execute()
+            result = await db.table("pending_notifications").select("*").eq("sent", False).lte("send_at", now).execute()
             for notif in result.data or []:
+                # Claim the row immediately to prevent duplicate processing on multi-instance deploys
+                claim = await db.table("pending_notifications").update({"sent": True}).eq("id", notif["id"]).eq("sent", False).execute()
+                if not claim.data:
+                    continue  # another instance already claimed it
                 if notif.get("dispatch_id"):
                     dispatch = await get_dispatch(notif["dispatch_id"])
                     if dispatch and dispatch["status"] == "acknowledged":
-                        db.table("pending_notifications").update({"sent": True}).eq("id", notif["id"]).execute()
                         logger.info("Dispatch acknowledged — skipping fallback SMS", dispatch_id=notif["dispatch_id"])
                         continue
                 from_phone: str | None = None
@@ -74,7 +78,6 @@ async def _poll_pending_notifications() -> None:
                     ctx = await get_dispatch_context(notif["dispatch_id"])
                     from_phone = (ctx or {}).get("tenant_phone")
                 await send_sms(notif["phone"], notif["message"], from_phone)
-                db.table("pending_notifications").update({"sent": True}).eq("id", notif["id"]).execute()
                 logger.info("Fallback SMS sent", phone=notif["phone"])
         except Exception as e:
             logger.error("pending_notifications poll failed", error=str(e))
@@ -90,7 +93,7 @@ async def _poll_dispatch_sms_timeouts() -> None:
         await asyncio.sleep(30)
         try:
             now = datetime.now(timezone.utc).isoformat()
-            result = (
+            result = await (
                 db.table("dispatch_sms_timeouts")
                 .select("*")
                 .eq("processed", False)
@@ -99,6 +102,10 @@ async def _poll_dispatch_sms_timeouts() -> None:
             )
             for row in result.data or []:
                 try:
+                    # Claim the row immediately to prevent duplicate processing on multi-instance deploys
+                    claim = await db.table("dispatch_sms_timeouts").update({"processed": True}).eq("id", row["id"]).eq("processed", False).execute()
+                    if not claim.data:
+                        continue  # another instance already claimed it
                     dispatch = await get_dispatch(row["dispatch_id"])
                     if dispatch and dispatch["status"] == "dispatching":
                         logger.info(
@@ -107,7 +114,6 @@ async def _poll_dispatch_sms_timeouts() -> None:
                             tech_id=row["tech_id"],
                         )
                         await try_next_tech(row["dispatch_id"], row["tech_id"], declined=False)
-                    db.table("dispatch_sms_timeouts").update({"processed": True}).eq("id", row["id"]).execute()
                 except Exception as e:
                     logger.error("dispatch_sms_timeout row failed", dispatch_id=row["dispatch_id"], error=str(e))
         except Exception as e:
@@ -118,10 +124,14 @@ async def _poll_dispatch_sms_timeouts() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(settings.redis_url, decode_responses=True)
-    asyncio.create_task(_poll_pending_notifications())
-    asyncio.create_task(_poll_dispatch_sms_timeouts())
+    poll_tasks = [
+        asyncio.create_task(_poll_pending_notifications()),
+        asyncio.create_task(_poll_dispatch_sms_timeouts()),
+    ]
     logger.info("Turboman started", port=settings.port)
     yield
+    for t in poll_tasks:
+        t.cancel()
     await app.state.redis.aclose()
     logger.info("Turboman shut down")
 
@@ -132,11 +142,21 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://turboman.ca", "https://www.turboman.ca", "https://app.turboman.ca"],
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Auth (login → JWT)
 app.include_router(auth_router)
@@ -151,8 +171,21 @@ app.include_router(dashboard_router)
 # ── Health check ───────────────────────────────────────────────────────────────
 
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health(request: Request):
+    checks: dict = {"status": "ok"}
+    try:
+        await request.app.state.redis.ping()
+        checks["redis"] = "ok"
+    except Exception as e:
+        checks["redis"] = f"error: {e}"
+        checks["status"] = "degraded"
+    try:
+        await db.table("tenants").select("id").limit(1).execute()
+        checks["db"] = "ok"
+    except Exception as e:
+        checks["db"] = f"error: {e}"
+        checks["status"] = "degraded"
+    return checks
 
 
 # ── Twilio signature validation dependency ─────────────────────────────────────
@@ -181,29 +214,45 @@ async def incoming_call(request: Request):
     called = form.get("To", "")
     logger.info("Incoming call received", caller=caller, called=called, all_params=dict(form))
 
-    # If the caller is a known on-call technician, route to the callback
-    # acknowledgment flow instead of the AI agent.
-    tech_result = (
-        db.table("oncall_technicians")
-        .select("id")
-        .eq("phone", caller)
-        .eq("active", True)
-        .limit(1)
-        .execute()
-    )
-    if tech_result.data:
-        tech_id = tech_result.data[0]["id"]
-        base = settings.base_url.rstrip("/")
-        return PlainTextResponse(
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            "<Response>"
-            f'<Redirect method="POST">{base}/oncall-callback?tech_id={tech_id}</Redirect>'
-            "</Response>",
-            media_type="text/xml",
-        )
+    # Resolve which tenant owns the `called` number — use Redis cache to avoid an extra DB hit
+    import json as _json
+    redis = request.app.state.redis
+    tenant_json = await redis.get(f"tenant:phone:{called}")
+    called_tenant_id: str | None = None
+    if tenant_json:
+        called_tenant_id = _json.loads(tenant_json).get("id")
+    else:
+        t_row = await db.table("tenants").select("id").eq("phone", called).single().execute()
+        called_tenant_id = (t_row.data or {}).get("id") if t_row.data else None
 
-    host = request.headers.get("host", "localhost")
-    ws_url = f"wss://{host}/call-stream"
+    # If the caller is a known on-call technician for this tenant, route to the callback
+    # acknowledgment flow instead of the AI agent.
+    if called_tenant_id:
+        tech_result = await (
+            db.table("oncall_technicians")
+            .select("id")
+            .eq("phone", caller)
+            .eq("tenant_id", called_tenant_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        if tech_result.data:
+            tech_id = tech_result.data[0]["id"]
+            base = settings.base_url.rstrip("/")
+            return PlainTextResponse(
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<Response>"
+                f'<Redirect method="POST">{base}/oncall-callback?tech_id={tech_id}</Redirect>'
+                "</Response>",
+                media_type="text/xml",
+            )
+
+    if settings.base_url:
+        ws_url = settings.base_url.rstrip("/").replace("https://", "wss://").replace("http://", "ws://") + "/call-stream"
+    else:
+        host = request.headers.get("host", "localhost")
+        ws_url = f"wss://{host}/call-stream"
 
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -287,7 +336,7 @@ async def oncall_callback(tech_id: str = Query(...)):
     name = tech["name"].split()[0]
 
     # Find the most recent dispatch for this tenant that is still active
-    dispatch_result = (
+    dispatch_result = await (
         db.table("oncall_dispatches")
         .select("id, status, service_requests(service_type, address, is_emergency)")
         .eq("tenant_id", tech["tenant_id"])
@@ -421,7 +470,7 @@ async def sms_incoming(request: Request, From: str = Form("")):
     If the sender is a known on-call technician, acknowledge their tenant's
     active dispatch so the escalation chain stops.
     """
-    result = db.table("oncall_technicians").select("tenant_id").eq("phone", From).eq("active", True).limit(1).execute()
+    result = await db.table("oncall_technicians").select("tenant_id").eq("phone", From).eq("active", True).limit(1).execute()
     if result.data:
         tenant_id = result.data[0]["tenant_id"]
         acknowledged = await acknowledge_dispatch_for_tenant(tenant_id)
@@ -487,7 +536,7 @@ async def call_dial_action(request: Request, call_sid: str = Query(...)):
     # Agent answered — mark escalation as bridged
     if dial_status == "completed" and escalation_id:
         try:
-            db.table("escalations").update({"status": "bridged"}).eq("id", escalation_id).execute()
+            await db.table("escalations").update({"status": "bridged"}).eq("id", escalation_id).execute()
         except Exception as e:
             logger.error("Failed to mark escalation bridged", error=str(e))
 

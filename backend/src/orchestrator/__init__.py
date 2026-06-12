@@ -72,6 +72,7 @@ async def run_turn(
         tools=TOOLS,
         messages=messages,
         extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+        timeout=45.0,
     ) as stream:
         async for event in stream:
             # Text tokens — flush at sentence boundaries for low-latency TTS
@@ -130,6 +131,7 @@ async def run_turn(
                 {"role": "user", "content": tool_results},
             ],
             extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+            timeout=45.0,
         )
         follow_up = next((b.text for b in continued.content if b.type == "text"), "")
         full_response += follow_up

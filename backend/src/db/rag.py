@@ -26,7 +26,7 @@ def _client() -> openai.AsyncOpenAI:
 async def embed(text: str) -> list[float]:
     """Embed text with OpenAI text-embedding-3-small (1536 dims)."""
     response = await _client().embeddings.create(
-        input=text[:8000],  # stay well within 8192 token limit
+        input=text[:8000],
         model="text-embedding-3-small",
     )
     return response.data[0].embedding
@@ -42,7 +42,7 @@ async def search_kb(tenant_id: str, query: str, k: int = 5) -> list[str]:
 
     try:
         embedding = await embed(query)
-        result = db.rpc("match_kb_chunks", {
+        result = await db.rpc("match_kb_chunks", {
             "query_embedding": embedding,
             "tenant": tenant_id,
             "match_count": k,
@@ -56,12 +56,10 @@ async def search_kb(tenant_id: str, query: str, k: int = 5) -> list[str]:
 async def ingest_chunk(tenant_id: str, content: str, metadata: dict | None = None) -> str:
     """Embed and store one text chunk. Returns the new chunk ID."""
     embedding = await embed(content)
-    result = db.table("kb_chunks").insert({
+    result = await db.table("kb_chunks").insert({
         "tenant_id": tenant_id,
         "content": content,
         "embedding": embedding,
         "metadata": metadata or {},
     }).execute()
     return result.data[0]["id"]
-
-

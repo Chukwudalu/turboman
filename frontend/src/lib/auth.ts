@@ -16,6 +16,7 @@ async function refreshAccessToken(token: any) {
     return {
       ...token,
       accessToken: data.access_token,
+      refreshToken: data.refresh_token ?? token.refreshToken,
       accessTokenExpires: Date.now() + ACCESS_TOKEN_TTL_MS,
       error: undefined,
     };
@@ -44,7 +45,10 @@ export const authOptions: NextAuthOptions = {
           }),
         });
 
-        if (!res.ok) return null;
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail ?? "Sign in failed");
+        }
         const data = await res.json();
         return {
           id: credentials.email,

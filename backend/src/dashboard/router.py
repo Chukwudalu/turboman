@@ -6,6 +6,7 @@ Returns JSON — consumed by the Next.js frontend dashboard.
 """
 from __future__ import annotations
 
+import asyncio
 import io
 from datetime import datetime, timezone
 
@@ -36,22 +37,36 @@ _bearer = HTTPBearer()
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
-def _get_tenant_id(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
+async def _get_tenant_id(request: Request, credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
     """Decode the JWT, enforce trial status, and return the tenant_id."""
     payload = decode_token(credentials.credentials)
     tenant_id = payload.get("tenant_id", "")
     if not tenant_id:
         raise HTTPException(status_code=403, detail="Token has no tenant scope")
 
-    tenant = db.table("tenants").select("plan, trial_ends_at").eq("id", tenant_id).single().execute()
+    redis = getattr(request.app.state, "redis", None)
+    cache_key = f"trial:{tenant_id}"
+
+    if redis:
+        cached = await redis.get(cache_key)
+        if cached == "expired":
+            raise HTTPException(status_code=402, detail="Trial expired. Please upgrade to continue.")
+        if cached == "ok":
+            return tenant_id
+
+    tenant = await db.table("tenants").select("plan, trial_ends_at").eq("id", tenant_id).single().execute()
     if tenant.data:
         plan = tenant.data.get("plan", "trial")
         trial_ends_at = tenant.data.get("trial_ends_at")
         if plan == "trial" and trial_ends_at:
-            from datetime import datetime, timezone
             expires = datetime.fromisoformat(trial_ends_at.replace("Z", "+00:00"))
             if expires < datetime.now(timezone.utc):
+                if redis:
+                    await redis.set(cache_key, "expired", ex=300)
                 raise HTTPException(status_code=402, detail="Trial expired. Please upgrade to continue.")
+
+    if redis:
+        await redis.set(cache_key, "ok", ex=300)
 
     return tenant_id
 
@@ -63,44 +78,18 @@ async def summary(tenant_id: str = Depends(_get_tenant_id)):
     """High-level counts for the dashboard header cards."""
     today = datetime.now(timezone.utc).date().isoformat()
 
-    calls_today = (
-        db.table("calls")
-        .select("id", count="exact")
-        .eq("tenant_id", tenant_id)
-        .gte("started_at", today)
-        .execute()
-    ).count or 0
-
-    escalations_today = (
-        db.table("calls")
-        .select("id", count="exact")
-        .eq("tenant_id", tenant_id)
-        .eq("status", "escalated")
-        .gte("started_at", today)
-        .execute()
-    ).count or 0
-
-    bookings_today = (
-        db.table("service_requests")
-        .select("id", count="exact")
-        .eq("tenant_id", tenant_id)
-        .gte("created_at", today)
-        .execute()
-    ).count or 0
-
-    open_requests = (
-        db.table("service_requests")
-        .select("id", count="exact")
-        .eq("tenant_id", tenant_id)
-        .in_("status", ["pending", "scheduled", "in_progress"])
-        .execute()
-    ).count or 0
+    r_calls, r_escalations, r_bookings, r_open = await asyncio.gather(
+        db.table("calls").select("id", count="exact").eq("tenant_id", tenant_id).gte("started_at", today).execute(),
+        db.table("calls").select("id", count="exact").eq("tenant_id", tenant_id).eq("status", "escalated").gte("started_at", today).execute(),
+        db.table("service_requests").select("id", count="exact").eq("tenant_id", tenant_id).gte("created_at", today).execute(),
+        db.table("service_requests").select("id", count="exact").eq("tenant_id", tenant_id).in_("status", ["pending", "scheduled", "in_progress"]).execute(),
+    )
 
     return {
-        "calls_today": calls_today,
-        "bookings_today": bookings_today,
-        "escalations_today": escalations_today,
-        "open_requests": open_requests,
+        "calls_today": r_calls.count or 0,
+        "bookings_today": r_bookings.count or 0,
+        "escalations_today": r_escalations.count or 0,
+        "open_requests": r_open.count or 0,
     }
 
 
@@ -117,17 +106,18 @@ async def list_calls(tenant_id: str = Depends(_get_tenant_id), limit: int = 50, 
     )
     if cursor:
         q = q.lt("started_at", cursor)
-    rows = q.limit(limit + 1).execute().data or []
+    rows = (await q.limit(limit + 1).execute()).data or []
     return {"data": rows[:limit], "next_cursor": rows[limit]["started_at"] if len(rows) > limit else None}
 
 
 @router.get("/calls/{call_id}")
-async def get_call(call_id: str, _: str = Depends(_get_tenant_id)):
+async def get_call(call_id: str, tenant_id: str = Depends(_get_tenant_id)):
     """Single call with full transcript and all actions taken."""
-    result = (
+    result = await (
         db.table("calls")
         .select("*, customers(name, phone, email), call_actions(*)")
         .eq("id", call_id)
+        .eq("tenant_id", tenant_id)
         .single()
         .execute()
     )
@@ -176,11 +166,12 @@ async def get_service_requests(
 
 
 @router.get("/service-requests/{request_id}")
-async def get_service_request_detail(request_id: str, _: str = Depends(_get_tenant_id)):
-    result = (
+async def get_service_request_detail(request_id: str, tenant_id: str = Depends(_get_tenant_id)):
+    result = await (
         db.table("service_requests")
         .select("*, customers(name, phone, email), calls(twilio_sid, duration_s), oncall_dispatches(status, created_at)")
         .eq("id", request_id)
+        .eq("tenant_id", tenant_id)
         .single()
         .execute()
     )
@@ -200,11 +191,12 @@ Do not start with "The customer" every time. Vary your opening.\
 
 
 @router.get("/service-requests/{request_id}/summary")
-async def get_request_summary(request_id: str, _: str = Depends(_get_tenant_id)):
-    result = (
+async def get_request_summary(request_id: str, tenant_id: str = Depends(_get_tenant_id)):
+    result = await (
         db.table("service_requests")
         .select("service_type, notes, address, is_emergency, calls(transcript)")
         .eq("id", request_id)
+        .eq("tenant_id", tenant_id)
         .single()
         .execute()
     )
@@ -236,7 +228,7 @@ async def get_request_summary(request_id: str, _: str = Depends(_get_tenant_id))
 
 
 class StatusUpdate(BaseModel):
-    status: str | None = None   # pending | reschedule_requested | scheduled | in_progress | completed | cancelled
+    status: str | None = None
     scheduled_date: str | None = None
     scheduled_time: str | None = None
     next_morning_priority: bool | None = None
@@ -274,14 +266,13 @@ async def update_request_status(request_id: str, body: StatusUpdate, tenant_id: 
 
     updated = await update_service_request(request_id, updates)
 
-    # Fire SMS confirmation when the trades company marks a request as scheduled
     if body.status == "scheduled":
         request = await get_service_request(request_id)
         if request:
             customer = request.get("customers") or {}
             phone = customer.get("phone")
             if phone:
-                tenant_row = db.table("tenants").select("phone").eq("id", tenant_id).single().execute()
+                tenant_row = await db.table("tenants").select("phone").eq("id", tenant_id).single().execute()
                 from_phone = (tenant_row.data or {}).get("phone")
                 service = request["service_type"]
                 date = body.scheduled_date or request.get("scheduled_date", "")
@@ -310,7 +301,7 @@ async def list_customers(tenant_id: str = Depends(_get_tenant_id), limit: int = 
     )
     if cursor:
         q = q.lt("created_at", cursor)
-    rows = q.limit(limit + 1).execute().data or []
+    rows = (await q.limit(limit + 1).execute()).data or []
     for row in rows:
         calls = row.pop("calls", []) or []
         row["last_call_at"] = max(
@@ -320,12 +311,13 @@ async def list_customers(tenant_id: str = Depends(_get_tenant_id), limit: int = 
 
 
 @router.get("/customers/{customer_id}")
-async def get_customer(customer_id: str, _: str = Depends(_get_tenant_id)):
+async def get_customer(customer_id: str, tenant_id: str = Depends(_get_tenant_id)):
     """Single customer with their full call and service request history."""
-    result = (
+    result = await (
         db.table("customers")
         .select("*, calls(id, status, duration_s, started_at), service_requests(id, service_type, status, created_at)")
         .eq("id", customer_id)
+        .eq("tenant_id", tenant_id)
         .single()
         .execute()
     )
@@ -346,7 +338,7 @@ async def list_kb_chunks(tenant_id: str = Depends(_get_tenant_id), limit: int = 
     )
     if cursor:
         q = q.lt("created_at", cursor)
-    rows = q.limit(limit + 1).execute().data or []
+    rows = (await q.limit(limit + 1).execute()).data or []
     return {"data": rows[:limit], "next_cursor": rows[limit]["created_at"] if len(rows) > limit else None}
 
 
@@ -358,7 +350,9 @@ async def upload_kb_file(tenant_id: str = Depends(_get_tenant_id), file: UploadF
 
     filename = file.filename or "upload"
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    raw = await file.read()
+    raw = await file.read(10 * 1024 * 1024 + 1)
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10MB.")
 
     if ext == "pdf":
         text = _extract_pdf(raw)
@@ -376,8 +370,13 @@ async def upload_kb_file(tenant_id: str = Depends(_get_tenant_id), file: UploadF
 
 
 @router.delete("/kb/{chunk_id}")
-async def delete_kb_chunk(chunk_id: str, _: str = Depends(_get_tenant_id)):
-    db.table("kb_chunks").delete().eq("id", chunk_id).execute()
+async def delete_kb_chunk(chunk_id: str, tenant_id: str = Depends(_get_tenant_id)):
+    row = await db.table("kb_chunks").select("tenant_id").eq("id", chunk_id).single().execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="KB chunk not found")
+    if row.data["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.table("kb_chunks").delete().eq("id", chunk_id).execute()
     return {"deleted": True}
 
 
@@ -404,7 +403,7 @@ class TenantSettingsUpdate(BaseModel):
 
 @router.get("/settings")
 async def get_settings(tenant_id: str = Depends(_get_tenant_id)):
-    result = (
+    result = await (
         db.table("tenants")
         .select(
             "id, name, phone, business_hours_start, business_hours_end, business_timezone, "
@@ -427,7 +426,7 @@ async def update_settings(body: TenantSettingsUpdate, request: Request, tenant_i
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    result = (
+    result = await (
         db.table("tenants")
         .update(updates)
         .eq("id", tenant_id)
@@ -435,10 +434,7 @@ async def update_settings(body: TenantSettingsUpdate, request: Request, tenant_i
     )
     tenant = result.data[0] if result.data else {}
 
-    # PostgREST only returns updated columns, so phone is missing unless it was
-    # in the update body. Fetch it explicitly to guarantee the cache key is correct.
-    phone_result = db.table("tenants").select("phone").eq("id", tenant_id).single().execute()
-    phone = (phone_result.data or {}).get("phone")
+    phone = tenant.get("phone")
     if phone:
         redis = getattr(request.app.state, "redis", None)
         if redis:
@@ -484,7 +480,7 @@ async def list_voices(tenant_id: str = Depends(_get_tenant_id)):
 
 @router.get("/team")
 async def list_team(tenant_id: str = Depends(_get_tenant_id)):
-    result = (
+    result = await (
         db.table("users")
         .select("id, email, name, role, active, created_at")
         .eq("tenant_id", tenant_id)
@@ -496,14 +492,15 @@ async def list_team(tenant_id: str = Depends(_get_tenant_id)):
 
 @router.delete("/team/{user_id}")
 async def remove_team_member(user_id: str, tenant_id: str = Depends(_get_tenant_id)):
-    result = db.table("users").select("id, role, tenant_id").eq("id", user_id).single().execute()
+    result = await db.table("users").select("id, email, role, tenant_id").eq("id", user_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="User not found")
     if result.data["tenant_id"] != tenant_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if result.data["role"] == "owner":
         raise HTTPException(status_code=400, detail="Cannot remove the account owner")
-    db.table("users").update({"active": False}).eq("id", user_id).execute()
+    await db.table("users").update({"active": False}).eq("id", user_id).execute()
+    await db.table("refresh_tokens").update({"revoked": True}).eq("user_email", result.data["email"]).execute()
     return {"ok": True}
 
 
@@ -539,15 +536,25 @@ async def add_oncall_technician(body: OncallTechCreate, tenant_id: str = Depends
 
 
 @router.patch("/oncall-technicians/{tech_id}")
-async def edit_oncall_technician(tech_id: str, body: OncallTechUpdate, _: str = Depends(_get_tenant_id)):
+async def edit_oncall_technician(tech_id: str, body: OncallTechUpdate, tenant_id: str = Depends(_get_tenant_id)):
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    row = await db.table("oncall_technicians").select("tenant_id").eq("id", tech_id).single().execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    if row.data["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     return await update_oncall_technician(tech_id, updates)
 
 
 @router.delete("/oncall-technicians/{tech_id}")
-async def remove_oncall_technician(tech_id: str, _: str = Depends(_get_tenant_id)):
+async def remove_oncall_technician(tech_id: str, tenant_id: str = Depends(_get_tenant_id)):
+    row = await db.table("oncall_technicians").select("tenant_id").eq("id", tech_id).single().execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    if row.data["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     await delete_oncall_technician(tech_id)
     return {"deleted": True}
 
@@ -556,7 +563,7 @@ async def remove_oncall_technician(tech_id: str, _: str = Depends(_get_tenant_id
 
 @router.get("/escalations")
 async def list_escalations(tenant_id: str = Depends(_get_tenant_id)):
-    result = (
+    result = await (
         db.table("escalations")
         .select("*, customers(name, phone), calls(id)")
         .eq("tenant_id", tenant_id)
@@ -580,7 +587,7 @@ async def update_escalation(
     body: EscalationUpdate,
     tenant_id: str = Depends(_get_tenant_id),
 ):
-    existing = (
+    existing = await (
         db.table("escalations")
         .select("id")
         .eq("id", escalation_id)
@@ -590,13 +597,12 @@ async def update_escalation(
     if not existing.data:
         raise HTTPException(status_code=404, detail="Escalation not found")
 
-    from datetime import datetime, timezone
     update: dict = {"status": body.status}
     if body.status == "handled":
         update["handled_at"] = datetime.now(timezone.utc).isoformat()
 
-    db.table("escalations").update(update).eq("id", escalation_id).execute()
-    result = (
+    await db.table("escalations").update(update).eq("id", escalation_id).execute()
+    result = await (
         db.table("escalations")
         .select("*, customers(name, phone), calls(id)")
         .eq("id", escalation_id)
@@ -621,14 +627,15 @@ async def close_account(
     if not tenant_id:
         raise HTTPException(status_code=403, detail="Token has no tenant scope")
 
-    row = db.table("tenants").select("phone, twilio_phone_sid").eq("id", tenant_id).single().execute()
+    row = await db.table("tenants").select("phone, twilio_phone_sid").eq("id", tenant_id).single().execute()
     if not row.data:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     if row.data.get("twilio_phone_sid"):
         try:
             from src.services.twilio_provision import release_phone_number
-            release_phone_number(row.data["twilio_phone_sid"])
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: release_phone_number(row.data["twilio_phone_sid"]))
         except Exception as e:
             from src.utils.logger import logger
             logger.error("Failed to release Twilio number on account close", error=str(e))
@@ -637,13 +644,13 @@ async def close_account(
     if redis and row.data.get("phone"):
         await redis.delete(f"tenant:phone:{row.data['phone']}")
 
-    db.table("tenants").update({
+    await db.table("tenants").update({
         "plan": "closed",
         "phone": None,
         "twilio_phone_sid": None,
     }).eq("id", tenant_id).execute()
 
-    db.table("users").update({"active": False}).eq("tenant_id", tenant_id).execute()
+    await db.table("users").update({"active": False}).eq("tenant_id", tenant_id).execute()
 
     from src.utils.logger import logger
     logger.info("Account closed by owner", tenant_id=tenant_id)

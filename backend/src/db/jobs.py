@@ -36,20 +36,12 @@ async def create_service_request(
         "is_after_hours": is_after_hours,
         "next_morning_priority": False,
     }
-    try:
-        result = db.table("service_requests").insert(payload).execute()
-    except Exception as e:
-        if "call_id" in str(e):
-            # call_id column missing — insert without it (run the migration to fix permanently)
-            payload.pop("call_id", None)
-            result = db.table("service_requests").insert(payload).execute()
-        else:
-            raise
+    result = await db.table("service_requests").insert(payload).execute()
     return result.data[0]
 
 
 async def update_service_request(request_id: str, updates: dict) -> dict:
-    result = (
+    result = await (
         db.table("service_requests")
         .update(updates)
         .eq("id", request_id)
@@ -59,7 +51,7 @@ async def update_service_request(request_id: str, updates: dict) -> dict:
 
 
 async def get_service_request(request_id: str) -> dict | None:
-    result = (
+    result = await (
         db.table("service_requests")
         .select("*, customers(name, phone, email), oncall_dispatches(status, created_at)")
         .eq("id", request_id)
@@ -71,7 +63,7 @@ async def get_service_request(request_id: str) -> dict | None:
 
 async def get_latest_open_request(customer_id: str) -> dict | None:
     """Return the most recent non-closed request for a customer."""
-    result = (
+    result = await (
         db.table("service_requests")
         .select("*")
         .eq("customer_id", customer_id)
@@ -109,6 +101,6 @@ async def list_service_requests(
         query = query.eq("is_emergency", is_emergency)
     if cursor:
         query = query.lt("created_at", cursor)
-    rows = query.limit(limit + 1).execute().data or []
+    rows = (await query.limit(limit + 1).execute()).data or []
     next_cursor = rows[limit]["created_at"] if len(rows) > limit else None
     return rows[:limit], next_cursor

@@ -10,6 +10,7 @@ POST /auth/users    — developer-only user provisioning (requires X-Admin-Secre
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -67,10 +68,10 @@ def _make_access_token(email: str, tenant_id: str, role: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=_ALGORITHM)
 
 
-def _make_refresh_token(email: str, tenant_id: str) -> str:
+async def _make_refresh_token(email: str, tenant_id: str) -> str:
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(days=_REFRESH_TOKEN_EXPIRE_DAYS)
-    db.table("refresh_tokens").insert({
+    await db.table("refresh_tokens").insert({
         "token": token,
         "user_email": email,
         "tenant_id": tenant_id,
@@ -129,12 +130,12 @@ async def register(request: Request, body: RegisterRequest):
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    existing = db.table("users").select("id").eq("email", body.email).execute()
+    existing = await db.table("users").select("id").eq("email", body.email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
     trial_ends_at = (datetime.now(timezone.utc) + timedelta(days=_TRIAL_DAYS)).isoformat()
-    tenant_result = db.table("tenants").insert({
+    tenant_result = await db.table("tenants").insert({
         "name": body.company_name,
         "trade_type": body.trade_type,
         "plan": "trial",
@@ -146,20 +147,22 @@ async def register(request: Request, body: RegisterRequest):
 
     if settings.twilio_auto_provision:
         try:
-            phone, phone_sid = provision_phone_number()
-            db.table("tenants").update({"phone": phone, "twilio_phone_sid": phone_sid}).eq("id", tenant["id"]).execute()
+            loop = asyncio.get_running_loop()
+            phone, phone_sid = await loop.run_in_executor(None, provision_phone_number)
+            await db.table("tenants").update({"phone": phone, "twilio_phone_sid": phone_sid}).eq("id", tenant["id"]).execute()
             tenant["phone"] = phone
         except Exception as exc:
             logger.warning("Twilio provisioning failed — tenant created without phone", tenant_id=tenant["id"], error=str(exc))
 
     verification_token = secrets.token_urlsafe(32)
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
-    user_result = db.table("users").insert({
+    user_result = await db.table("users").insert({
         "email": body.email,
         "name": body.name,
         "password_hash": hashed,
         "tenant_id": tenant["id"],
         "role": "owner",
+        "active": True,
         "email_verified": False,
         "verification_token": verification_token,
     }).execute()
@@ -167,7 +170,8 @@ async def register(request: Request, body: RegisterRequest):
         raise HTTPException(status_code=500, detail="Failed to create user")
 
     from src.services.email import send_verification_email
-    send_verification_email(body.email, body.name, verification_token)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: send_verification_email(body.email, body.name, verification_token))
 
     return {"message": "Account created. Please check your email to verify your account."}
 
@@ -177,7 +181,7 @@ async def register(request: Request, body: RegisterRequest):
 @router.post("/token", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def login(request: Request, body: LoginRequest):
-    result = db.table("users").select("email, password_hash, tenant_id, role, active, email_verified").eq("email", body.email).execute()
+    result = await db.table("users").select("email, password_hash, tenant_id, role, active, email_verified").eq("email", body.email).execute()
     user = result.data[0] if result.data else None
 
     if not user or not user.get("active") or not bcrypt.checkpw(body.password.encode(), user["password_hash"].encode()):
@@ -187,7 +191,7 @@ async def login(request: Request, body: LoginRequest):
         raise HTTPException(status_code=403, detail="Please verify your email before logging in. Check your inbox for the verification link.")
 
     access_token = _make_access_token(user["email"], user["tenant_id"], user.get("role", "member"))
-    refresh_token = _make_refresh_token(user["email"], user["tenant_id"])
+    refresh_token = await _make_refresh_token(user["email"], user["tenant_id"])
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
@@ -195,7 +199,7 @@ async def login(request: Request, body: LoginRequest):
 
 @router.post("/refresh")
 async def refresh(body: RefreshRequest):
-    result = db.table("refresh_tokens").select("*").eq("token", body.refresh_token).eq("revoked", False).execute()
+    result = await db.table("refresh_tokens").select("*").eq("token", body.refresh_token).eq("revoked", False).execute()
     row = result.data[0] if result.data else None
 
     if not row:
@@ -205,16 +209,23 @@ async def refresh(body: RefreshRequest):
     if expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
-    user = db.table("users").select("role").eq("email", row["user_email"]).single().execute()
+    user = await db.table("users").select("role").eq("email", row["user_email"]).single().execute()
     role = (user.data or {}).get("role", "member")
 
+    # Atomic revoke — if another request already revoked this token, bail.
+    # This prevents two concurrent requests from each getting a new token from the same old one.
+    revoked = await db.table("refresh_tokens").update({"revoked": True}).eq("token", body.refresh_token).eq("revoked", False).execute()
+    if not revoked.data:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    new_refresh_token = await _make_refresh_token(row["user_email"], row["tenant_id"])
+
     access_token = _make_access_token(row["user_email"], row["tenant_id"], role)
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "refresh_token": new_refresh_token, "token_type": "bearer"}
 
 
 @router.post("/logout")
 async def logout(body: LogoutRequest):
-    db.table("refresh_tokens").update({"revoked": True}).eq("token", body.refresh_token).execute()
+    await db.table("refresh_tokens").update({"revoked": True}).eq("token", body.refresh_token).execute()
     return {"ok": True}
 
 
@@ -222,7 +233,7 @@ async def logout(body: LogoutRequest):
 
 @router.get("/verify-email")
 async def verify_email(token: str):
-    result = db.table("users").select("id, email_verified").eq("verification_token", token).execute()
+    result = await db.table("users").select("id, email_verified").eq("verification_token", token).execute()
     user = result.data[0] if result.data else None
 
     if not user:
@@ -230,7 +241,7 @@ async def verify_email(token: str):
     if user.get("email_verified"):
         return {"message": "Email already verified. You can log in."}
 
-    db.table("users").update({
+    await db.table("users").update({
         "email_verified": True,
     }).eq("verification_token", token).execute()
 
@@ -251,31 +262,32 @@ class ResetPasswordRequest(BaseModel):
 @router.post("/forgot-password")
 @limiter.limit("5/minute")
 async def forgot_password(request: Request, body: ForgotPasswordRequest):
-    user = db.table("users").select("id, name, email").eq("email", body.email).execute()
+    user = await db.table("users").select("id, name, email").eq("email", body.email).execute()
     if not user.data:
-        # Return success regardless to avoid email enumeration
         return {"message": "If that email is registered, a reset link has been sent."}
 
     u = user.data[0]
     token = secrets.token_urlsafe(32)
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-    db.table("users").update({
+    await db.table("users").update({
         "password_reset_token": token,
         "password_reset_expires_at": expires_at,
     }).eq("id", u["id"]).execute()
 
     from src.services.email import send_password_reset_email
-    send_password_reset_email(u["email"], u["name"], token)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: send_password_reset_email(u["email"], u["name"], token))
     return {"message": "If that email is registered, a reset link has been sent."}
 
 
 @router.post("/reset-password")
-async def reset_password(body: ResetPasswordRequest):
+@limiter.limit("10/minute")
+async def reset_password(request: Request, body: ResetPasswordRequest):
     err = _validate_password(body.new_password)
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    result = db.table("users").select("id, password_reset_expires_at").eq("password_reset_token", body.token).execute()
+    result = await db.table("users").select("id, password_reset_expires_at").eq("password_reset_token", body.token).execute()
     user = result.data[0] if result.data else None
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
@@ -285,7 +297,7 @@ async def reset_password(body: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="This reset link has expired. Please request a new one.")
 
     new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
-    db.table("users").update({
+    await db.table("users").update({
         "password_hash": new_hash,
         "password_reset_token": None,
         "password_reset_expires_at": None,
@@ -312,7 +324,7 @@ async def change_password(
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    user = db.table("users").select("id, password_hash").eq("email", email).single().execute()
+    user = await db.table("users").select("id, password_hash").eq("email", email).single().execute()
     if not user.data:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -320,7 +332,8 @@ async def change_password(
         raise HTTPException(status_code=401, detail="Current password is incorrect")
 
     new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
-    db.table("users").update({"password_hash": new_hash}).eq("id", user.data["id"]).execute()
+    await db.table("users").update({"password_hash": new_hash}).eq("id", user.data["id"]).execute()
+    await db.table("refresh_tokens").update({"revoked": True}).eq("user_email", email).execute()
     return {"ok": True}
 
 
@@ -339,31 +352,37 @@ async def invite_user(body: InviteRequest, payload: dict = Depends(_require_role
 
     tenant_id = payload["tenant_id"]
 
-    existing = db.table("users").select("id").eq("email", body.email).execute()
+    existing = await db.table("users").select("id").eq("email", body.email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="A user with this email already exists")
 
     temp_password = secrets.token_urlsafe(12)
     hashed = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt()).decode()
 
-    result = db.table("users").insert({
+    result = await db.table("users").insert({
         "email": body.email,
         "name": body.name,
         "password_hash": hashed,
         "tenant_id": tenant_id,
         "role": body.role,
+        "active": True,
+        "email_verified": True,
     }).execute()
 
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create user")
 
     user = result.data[0]
+
+    from src.services.email import send_invite_email
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: send_invite_email(body.email, body.name, temp_password))
+
     return {
         "id": user["id"],
         "email": user["email"],
         "name": user["name"],
         "role": user["role"],
-        "temp_password": temp_password,
     }
 
 
@@ -379,11 +398,11 @@ class CreateUserRequest(BaseModel):
 @router.post("/users", status_code=201)
 async def create_user(body: CreateUserRequest, x_admin_secret: str = Header(...)):
     """Turboman developer provisioning. Protected by X-Admin-Secret — not for tenants."""
-    if not settings.admin_secret or x_admin_secret != settings.admin_secret:
+    if not settings.admin_secret or not secrets.compare_digest(x_admin_secret, settings.admin_secret):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
-    result = db.table("users").insert({
+    result = await db.table("users").insert({
         "email": body.email,
         "password_hash": hashed,
         "tenant_id": body.tenant_id,

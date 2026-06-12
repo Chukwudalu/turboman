@@ -21,6 +21,8 @@ from src.services.deepgram import STTStream
 from src.services.notifications import send_confirmation_sms
 from src.utils.logger import logger
 
+_twilio = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
+
 # Mulaw 8kHz = 1 byte per sample, so bytes / 8000 = seconds of audio
 _MULAW_BYTES_PER_SECOND = 8000
 
@@ -147,8 +149,9 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
         await stt.connect()
         logger.info("Deepgram STT connected")
     except Exception as e:
-        logger.error("Deepgram STT connect failed — hanging up", error=str(e))
-        await websocket.close()
+        sentry_sdk.capture_exception(e)
+        logger.error("Deepgram STT connect failed — escalating", error=str(e))
+        await _handle_escalation(websocket, state)
         return
 
     try:
@@ -307,6 +310,9 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
         updated = result["updated_history"]
         if len(updated) > _MAX_HISTORY_MESSAGES:
             updated = updated[-_MAX_HISTORY_MESSAGES:]
+            # Always start on a user turn — never leave an orphaned assistant message
+            while updated and updated[0]["role"] != "user":
+                updated = updated[1:]
         state.history = updated
         state.transcript_lines.append(f"agent: {result['response_text']}")
 
@@ -352,9 +358,13 @@ async def _speak(websocket: WebSocket, state: CallState, text: str) -> tuple[int
                 "media": {"payload": base64.b64encode(audio_bytes).decode()},
             })))
 
+    def on_tts_error(e: Exception):
+        state.is_speaking = False
+        asyncio.ensure_future(_handle_escalation(websocket, state))
+
     voice_id = state.tenant.get("cartesia_voice_id") or None
     t0 = time.monotonic()
-    await stream_tts(text, on_audio_chunk=on_chunk, voice_id=voice_id)
+    await stream_tts(text, on_audio_chunk=on_chunk, voice_id=voice_id, on_error=on_tts_error)
     return total_bytes, time.monotonic() - t0
 
 
@@ -497,11 +507,19 @@ async def _handle_escalation(websocket: WebSocket, state: CallState):
         or settings.escalation_phone
     )
 
+    import re as _re
+    _E164_RE = _re.compile(r"^\+[1-9]\d{7,14}$")
+
+    if escalation_phone and not _E164_RE.match(escalation_phone):
+        logger.error("Escalation phone is not valid E.164 — skipping warm transfer", phone=escalation_phone)
+        escalation_phone = ""
+
     if escalation_phone and state.call_sid:
+        from urllib.parse import quote as _quote
         base = settings.base_url.rstrip("/") if settings.base_url else ""
         if base:
-            whisper_url = f"{base}/call-whisper?call_sid={state.call_sid}"
-            action_url = f"{base}/call-dial-action?call_sid={state.call_sid}"
+            whisper_url = f"{base}/call-whisper?call_sid={_quote(state.call_sid)}"
+            action_url = f"{base}/call-dial-action?call_sid={_quote(state.call_sid)}"
             twiml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
                 "<Response>"
@@ -513,11 +531,11 @@ async def _handle_escalation(websocket: WebSocket, state: CallState):
         else:
             twiml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
-                f"<Response><Dial timeout=\"30\">{escalation_phone}</Dial></Response>"
+                f'<Response><Dial timeout="30">{escalation_phone}</Dial></Response>'
             )
         try:
-            twilio = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
-            twilio.calls(state.call_sid).update(twiml=twiml)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: _twilio.calls(state.call_sid).update(twiml=twiml))
             logger.info("Warm transfer initiated", to=escalation_phone, after_hours=after_hours)
         except Exception as e:
             logger.error("Warm transfer failed", error=str(e))

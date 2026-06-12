@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # Error monitoring
     sentry_dsn: str = ""
 
+    # CORS — comma-separated list of allowed origins (override via CORS_ORIGINS env var)
+    cors_origins: str = "http://localhost:3000,https://turboman.ca,https://www.turboman.ca,https://app.turboman.ca"
+
     # Admin API — secret header required for privileged routes (e.g. POST /auth/users)
     admin_secret: str = ""
 

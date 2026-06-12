@@ -37,18 +37,32 @@ async def book_job(inputs: dict, *, tenant: dict, customer: dict | None, call_id
     date_hint = f" for around {inputs['preferred_date']}" if inputs.get("preferred_date") else ""
 
     # Notify the on-call tech for any after-hours request — emergency or not.
+    dispatch_ok = True
     if after_hours:
-        await trigger_oncall_dispatch(
-            tenant_id=tenant["id"],
-            service_request_id=request["id"],
-            service_type=service,
-            address=inputs.get("address"),
-            customer_phone=customer.get("phone"),
-            notification_method=tenant.get("oncall_notification_method") or "both",
-            is_emergency=emergency,
-        )
+        try:
+            await trigger_oncall_dispatch(
+                tenant_id=tenant["id"],
+                service_request_id=request["id"],
+                service_type=service,
+                address=inputs.get("address"),
+                customer_phone=customer.get("phone"),
+                notification_method=tenant.get("oncall_notification_method") or "both",
+                is_emergency=emergency,
+            )
+        except Exception as e:
+            logger.error("Oncall dispatch failed after service request created", error=str(e), request_id=request.get("id"))
+            dispatch_ok = False
 
     if after_hours or emergency:
+        if not dispatch_ok:
+            return {
+                "success": True,
+                "message": (
+                    f"I've logged your {service} request{date_hint}. "
+                    "We're having trouble reaching our on-call team right now — "
+                    "someone will follow up with you as soon as possible."
+                ),
+            }
         return {
             "success": True,
             "message": (

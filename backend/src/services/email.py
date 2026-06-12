@@ -43,6 +43,42 @@ def send_password_reset_email(to_email: str, name: str, token: str) -> bool:
         return False
 
 
+def send_invite_email(to_email: str, name: str, temp_password: str) -> bool:
+    """Send a team invite with a temporary password. Returns True on success."""
+    _client()
+    login_url = settings.frontend_url.rstrip("/") + "/login"
+
+    try:
+        resend.Emails.send({
+            "from": settings.email_from,
+            "to": to_email,
+            "subject": "You've been invited to Turboman",
+            "html": f"""
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
+              <h2 style="margin:0 0 8px;font-size:22px;color:#0f172a">Welcome to Turboman, {name}!</h2>
+              <p style="margin:0 0 16px;color:#475569;font-size:15px;line-height:1.6">
+                You've been added to your team's Turboman account. Use the credentials below to log in.
+              </p>
+              <p style="margin:0 0 8px;color:#475569;font-size:15px"><strong>Email:</strong> {to_email}</p>
+              <p style="margin:0 0 24px;color:#475569;font-size:15px"><strong>Temporary password:</strong> {temp_password}</p>
+              <a href="{login_url}"
+                 style="display:inline-block;background:#2563eb;color:#fff;font-weight:600;
+                        font-size:14px;padding:12px 24px;border-radius:8px;text-decoration:none">
+                Log in to Turboman
+              </a>
+              <p style="margin:24px 0 0;color:#94a3b8;font-size:12px">
+                Please change your password after your first login.
+              </p>
+            </div>
+            """,
+        })
+        logger.info("Invite email sent", to=to_email)
+        return True
+    except Exception as e:
+        logger.error("Failed to send invite email", to=to_email, error=str(e))
+        return False
+
+
 def send_verification_email(to_email: str, name: str, token: str) -> bool:
     """Send an email verification link. Returns True on success."""
     _client()

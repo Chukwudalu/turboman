@@ -1,46 +1,46 @@
 # Web framework
-fastapi
-uvicorn[standard]
-python-multipart
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+python-multipart==0.0.27
 
 # WebSockets
-websockets
+websockets==15.0.1
 
 # AI
-anthropic
-openai          # text-embedding-3-small for KB RAG
+anthropic==0.97.0
+openai==2.33.0          # text-embedding-3-small for KB RAG
 
 # Auth
-python-jose[cryptography]  # JWT signing for dashboard login
-bcrypt                      # password hashing for users table
-slowapi                     # rate limiting for webhook and auth endpoints
+python-jose[cryptography]==3.5.0  # JWT signing for dashboard login
+bcrypt==5.0.0                      # password hashing for users table
+slowapi==0.1.9                     # rate limiting for webhook and auth endpoints
 
 # Voice services
-deepgram-sdk>=3,<4
-httpx           # async HTTP for Cartesia TTS + Jobber
+deepgram-sdk==3.11.0
+httpx==0.28.1           # async HTTP for Cartesia TTS
 
 # Database
-supabase
+supabase==2.29.0
 
 # Cache / session
-redis
+redis==7.4.0
 
 # Twilio
-twilio
+twilio==9.10.5
 
 # Config
-python-dotenv
-pydantic-settings
-pydantic
+python-dotenv==1.2.2
+pydantic-settings==2.14.0
+pydantic==2.13.3
 
 # Email
-resend
+resend==2.30.0
 
 # Error monitoring
-sentry-sdk[fastapi]
+sentry-sdk[fastapi]==2.59.0
 
 # KB ingestion
-pypdf
+pypdf==6.10.2
 
 # Testing
 pytest
