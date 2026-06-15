@@ -76,7 +76,7 @@ function BusinessInfoCard({ token }: { token: string }) {
               <label className="text-xs font-medium text-slate-600 block mb-1.5">About your company</label>
               <textarea
                 rows={3}
-                placeholder="e.g. Smith HVAC has served the Dallas area since 2005, specialising in residential and light commercial HVAC."
+                placeholder="e.g. Smith Plumbing has served the Lower Mainland since 2010, specialising in residential and commercial plumbing."
                 value={about}
                 onChange={(e) => setAbout(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
