@@ -79,7 +79,7 @@ function Nav() {
           <span className="text-lg font-bold tracking-tight">Turboman</span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-8 text-[13px] font-medium text-slate-500">
+        <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
           <a href="#how" className="hover:text-slate-900 transition-colors">How it works</a>
           <a href="#features" className="hover:text-slate-900 transition-colors">Features</a>
           <a href="#pricing" className="hover:text-slate-900 transition-colors">Pricing</a>
@@ -88,19 +88,19 @@ function Nav() {
         <div className="flex items-center gap-3">
           {loggedIn ? (
             <>
-              <Link href="/dashboard" className="text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors hidden sm:block">
+              <Link href="/dashboard" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors hidden sm:block">
                 Dashboard
               </Link>
               <button
                 onClick={() => signOut({ callbackUrl: "/" })}
-                className="text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors"
+                className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
               >
                 Log out
               </button>
             </>
           ) : (
             <>
-              <Link href="/login" className="text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors hidden sm:block">
+              <Link href="/login" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors hidden sm:block">
                 Log in
               </Link>
               <Link
@@ -137,7 +137,7 @@ function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <span className="inline-block text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-400 mb-8">
+          <span className="inline-block text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-500 mb-8">
             After-hours answering for trades
           </span>
         </motion.div>
@@ -148,18 +148,18 @@ function Hero() {
           transition={{ duration: 0.7, delay: 0.1 }}
           className="text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[1.05] tracking-tight mb-8"
         >
-          Never miss a<br />
-          midnight emergency
+          Never miss an<br />
+          after-hours service request
         </motion.h1>
 
         <motion.p
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.25 }}
-          className="text-lg sm:text-xl text-slate-400 leading-relaxed max-w-xl mx-auto mb-12"
+          className="text-lg sm:text-xl text-slate-600 leading-relaxed max-w-xl mx-auto mb-12"
         >
           Turboman picks up after-hours calls, takes the details, and dispatches
-          your on-call tech — automatically.
+          your on-call tech,automatically.
         </motion.p>
 
         <motion.div
@@ -187,7 +187,7 @@ function Hero() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.6 }}
-          className="mt-8 text-[13px] text-slate-400"
+          className="mt-8 text-[13px] text-slate-500"
         >
           30 days free · No credit card · Cancel anytime
         </motion.p>
@@ -208,9 +208,9 @@ function Statement() {
           className="text-2xl sm:text-3xl md:text-4xl font-semibold leading-snug tracking-tight text-slate-800"
         >
           Your customers call at 2 AM with a burst pipe.{" "}
-          <span className="text-slate-400">
+          <span className="text-slate-500">
             Turboman answers in your company&apos;s name, takes the details, quotes your
-            after-hours rate, and dispatches your on-call tech — before you wake up.
+            after-hours rate, and dispatches your on-call tech,before you wake up.
           </span>
         </motion.p>
       </div>
@@ -225,7 +225,7 @@ function HowItWorks() {
     {
       number: "01",
       title: "Customer calls",
-      desc: "After hours, calls go to your Turboman number. The AI answers instantly with your company name — no hold music, no voicemail.",
+      desc: "After hours, calls go to your Turboman number. The AI answers instantly with your company name,no hold music, no voicemail.",
     },
     {
       number: "02",
@@ -242,7 +242,7 @@ function HowItWorks() {
   return (
     <Section className="py-32 px-6 bg-white" >
       <div id="how" className="max-w-5xl mx-auto scroll-mt-24">
-        <motion.p variants={fade} custom={0} className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-400 mb-4">
+        <motion.p variants={fade} custom={0} className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-500 mb-4">
           How it works
         </motion.p>
         <motion.h2 variants={fade} custom={1} className="text-3xl sm:text-4xl font-bold tracking-tight mb-20">
@@ -254,7 +254,7 @@ function HowItWorks() {
             <motion.div key={s.number} variants={fade} custom={i + 2}>
               <span className="text-5xl font-bold text-slate-100 block mb-6">{s.number}</span>
               <h3 className="text-xl font-semibold mb-3">{s.title}</h3>
-              <p className="text-[15px] text-slate-500 leading-relaxed">{s.desc}</p>
+              <p className="text-[15px] text-slate-600 leading-relaxed">{s.desc}</p>
             </motion.div>
           ))}
         </div>
@@ -269,11 +269,11 @@ function Features() {
   const features = [
     {
       title: "Answers every call",
-      desc: "No voicemail. No hold queue. Turboman picks up instantly after hours and handles the conversation start to finish.",
+      desc: "No voicemail. No hold queue. Turboman picks up instantly after-hours and handles the conversation start to finish.",
     },
     {
       title: "Quotes your rates",
-      desc: "Your after-hours pricing, your services. The AI quotes accurately from your knowledge base — never makes up numbers.",
+      desc: "Your after-hours pricing, your services. The AI quotes accurately from your knowledge base,never makes up numbers.",
     },
     {
       title: "Dispatches your team",
@@ -281,11 +281,11 @@ function Features() {
     },
     {
       title: "Confirms every detail",
-      desc: "Name, address, and postal code — each spelled back individually over the phone. No more garbled addresses.",
+      desc: "Name, address, and postal code,each spelled back individually over the phone. No more garbled addresses.",
     },
     {
       title: "Works for any trade",
-      desc: "Plumbing, HVAC, electrical, roofing, pest control — if you have an after-hours on-call team, Turboman fits.",
+      desc: "Plumbing, HVAC, electrical, roofing, pest control,if you have an after-hours on-call team, Turboman fits.",
     },
     {
       title: "Dashboard for your team",
@@ -296,7 +296,7 @@ function Features() {
   return (
     <Section className="py-32 px-6">
       <div id="features" className="max-w-5xl mx-auto scroll-mt-24">
-        <motion.p variants={fade} custom={0} className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-400 mb-4">
+        <motion.p variants={fade} custom={0} className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-500 mb-4">
           Features
         </motion.p>
         <motion.h2 variants={fade} custom={1} className="text-3xl sm:text-4xl font-bold tracking-tight mb-20 max-w-lg">
@@ -307,7 +307,7 @@ function Features() {
           {features.map((f, i) => (
             <motion.div key={f.title} variants={fade} custom={i + 2}>
               <h3 className="text-[15px] font-semibold mb-2">{f.title}</h3>
-              <p className="text-[14px] text-slate-500 leading-relaxed">{f.desc}</p>
+              <p className="text-[14px] text-slate-600 leading-relaxed">{f.desc}</p>
             </motion.div>
           ))}
         </div>
@@ -332,7 +332,7 @@ function Pricing() {
   return (
     <Section className="py-32 px-6 bg-white">
       <div id="pricing" className="max-w-5xl mx-auto scroll-mt-24">
-        <motion.p variants={fade} custom={0} className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-400 mb-4">
+        <motion.p variants={fade} custom={0} className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-500 mb-4">
           Pricing
         </motion.p>
         <motion.h2 variants={fade} custom={1} className="text-3xl sm:text-4xl font-bold tracking-tight mb-20">
@@ -341,12 +341,12 @@ function Pricing() {
 
         <motion.div variants={fade} custom={2} className="max-w-md">
           <div className="border border-slate-200 rounded-2xl p-10 bg-white">
-            <p className="text-[13px] font-semibold text-slate-400 uppercase tracking-wide mb-6">Pro</p>
+            <p className="text-[13px] font-semibold text-slate-500 uppercase tracking-wide mb-6">Pro</p>
             <div className="flex items-baseline gap-1 mb-1">
               <span className="text-5xl font-bold">$199</span>
-              <span className="text-slate-400 text-sm font-medium">/month</span>
+              <span className="text-slate-500 text-sm font-medium">/month</span>
             </div>
-            <p className="text-[14px] text-slate-400 mb-8">Start with a free 30-day trial</p>
+            <p className="text-[14px] text-slate-500 mb-8">Start with a free 30-day trial</p>
 
             <Link
               href="/register"
@@ -359,7 +359,7 @@ function Pricing() {
             <ul className="space-y-4">
               {included.map((item) => (
                 <li key={item} className="flex items-center gap-3 text-[14px] text-slate-600">
-                  <CheckCircle size={16} className="text-slate-300 shrink-0" />
+                  <CheckCircle size={16} className="text-slate-400 shrink-0" />
                   {item}
                 </li>
               ))}
@@ -387,7 +387,7 @@ function CTA() {
         <motion.p
           variants={fade}
           custom={1}
-          className="text-lg text-slate-400 mb-10 max-w-md mx-auto"
+          className="text-lg text-slate-600 mb-10 max-w-md mx-auto"
         >
           Set up in 10 minutes. Your first 30 days are free.
         </motion.p>
@@ -417,10 +417,10 @@ function Footer() {
           </div>
           <span className="font-bold text-[15px]">Turboman</span>
         </div>
-        <p className="text-[13px] text-slate-400">
+        <p className="text-[13px] text-slate-500">
           &copy; {new Date().getFullYear()} Turboman. All rights reserved.
         </p>
-        <div className="flex gap-6 text-[13px] text-slate-400">
+        <div className="flex gap-6 text-[13px] text-slate-500">
           <a href="#" className="hover:text-slate-900 transition-colors">Privacy</a>
           <a href="#" className="hover:text-slate-900 transition-colors">Terms</a>
           <a href="mailto:hello@turboman.ca" className="hover:text-slate-900 transition-colors">Contact</a>

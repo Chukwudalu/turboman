@@ -36,14 +36,14 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <aside className="w-64 h-full bg-slate-900 flex flex-col shrink-0 border-r border-slate-800">
+    <aside className="w-64 h-full bg-white flex flex-col shrink-0 border-r border-slate-200">
       {/* Brand */}
-      <div className="px-5 py-5 border-b border-slate-800">
+      <div className="px-5 py-5 border-b border-slate-100">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center shadow-lg shadow-brand/40 shrink-0">
-            <Zap size={15} className="text-white" />
+          <div className="w-8 h-8 rounded-lg bg-slate-900 flex items-center justify-center shrink-0">
+            <Zap size={14} className="text-white" />
           </div>
-          <span className="text-white font-bold text-lg tracking-tight">Turboman</span>
+          <span className="text-slate-900 font-bold text-lg tracking-tight">Turboman</span>
         </div>
       </div>
 
@@ -59,11 +59,11 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
               className={clsx(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150",
                 active
-                  ? "bg-brand/10 text-white border border-brand/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
               )}
             >
-              <Icon size={16} className={active ? "text-brand" : "text-current"} />
+              <Icon size={16} />
               {label}
             </Link>
           );
@@ -71,10 +71,10 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
       </nav>
 
       {/* Sign out */}
-      <div className="px-3 py-4 border-t border-slate-800">
+      <div className="px-3 py-4 border-t border-slate-100">
         <button
           onClick={handleSignOut}
-          className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-slate-500 hover:text-white hover:bg-slate-800 transition-all duration-150 border border-transparent"
+          className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all duration-150"
         >
           <LogOut size={16} />
           Sign out

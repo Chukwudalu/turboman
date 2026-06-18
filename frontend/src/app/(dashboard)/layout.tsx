@@ -55,7 +55,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [session]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="flex h-screen overflow-hidden bg-[#fafafa]">
       {/* Mobile backdrop */}
       {sidebarOpen && (
         <div
@@ -87,8 +87,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Menu size={20} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center shadow-sm shadow-brand/30">
-              <Zap size={13} className="text-white" />
+            <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center">
+              <Zap size={12} className="text-white" />
             </div>
             <span className="font-bold text-slate-900 text-base">Turboman</span>
           </div>
