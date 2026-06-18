@@ -11,6 +11,7 @@
   "dependencies": {
     "@sentry/nextjs": "^10.53.1",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.40.0",
     "lucide-react": "^0.438.0",
     "next": "^14.2.35",
     "next-auth": "^4.24.7",
