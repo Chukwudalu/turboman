@@ -44,21 +44,20 @@ function ResetPasswordForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-brand/10 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative w-full max-w-sm px-5 sm:px-4">
+    <div className="min-h-screen flex items-center justify-center bg-[#fafafa] px-4">
+      <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-brand shadow-lg shadow-brand/40 mb-4">
-            <Zap size={22} className="text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Turboman</h1>
-          <p className="text-slate-400 mt-1.5 text-sm">Set a new password</p>
+          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
+            <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center">
+              <Zap size={15} className="text-white" />
+            </div>
+            <span className="text-xl font-bold tracking-tight text-slate-900">Turboman</span>
+          </Link>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Set a new password</h1>
+          <p className="text-slate-500 mt-1.5 text-sm">Choose a strong password for your account.</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-2xl shadow-black/30 p-8 border border-slate-100">
+        <div className="bg-white rounded-2xl border border-slate-200 p-8">
           {done ? (
             <div className="text-center space-y-2">
               <p className="text-emerald-600 font-medium text-sm">Password updated successfully.</p>
@@ -74,7 +73,7 @@ function ResetPasswordForm() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition"
                     placeholder="••••••••"
                   />
                   <button
@@ -86,7 +85,7 @@ function ResetPasswordForm() {
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
-                <p className="text-xs text-slate-400 mt-1.5">Min 8 chars, upper &amp; lowercase, number, and symbol.</p>
+                <p className="text-xs text-slate-500 mt-1.5">Min 8 chars, upper &amp; lowercase, number, and symbol.</p>
               </div>
 
               {error && (
@@ -96,7 +95,7 @@ function ResetPasswordForm() {
               <button
                 type="submit"
                 disabled={loading || !token}
-                className="w-full bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2.5 text-sm transition-colors disabled:opacity-60 shadow-sm shadow-brand/20"
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-full py-2.5 text-sm transition-colors disabled:opacity-60"
               >
                 {loading ? "Updating…" : "Set new password"}
               </button>

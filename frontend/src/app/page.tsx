@@ -73,7 +73,7 @@ function Nav() {
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-slate-900 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
             <Zap size={14} className="text-white" />
           </div>
           <span className="text-lg font-bold tracking-tight">Turboman</span>
@@ -105,7 +105,7 @@ function Nav() {
               </Link>
               <Link
                 href="/register"
-                className="text-[13px] font-medium bg-slate-900 text-white px-4 py-2 rounded-full hover:bg-slate-800 transition-colors"
+                className="text-[13px] font-medium bg-slate-800 text-white px-4 py-2 rounded-full hover:bg-slate-700 transition-colors"
               >
                 Get started
               </Link>
@@ -137,7 +137,7 @@ function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <span className="inline-block text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-500 mb-8">
+          <span className="inline-block text-sm font-semibold tracking-[0.15em] uppercase text-slate-500 mb-8">
             After-hours answering for trades
           </span>
         </motion.div>
@@ -170,7 +170,7 @@ function Hero() {
         >
           <Link
             href="/register"
-            className="group inline-flex items-center gap-2 bg-slate-900 text-white font-medium px-8 py-3.5 rounded-full hover:bg-slate-800 transition-all text-[15px]"
+            className="group inline-flex items-center gap-2 bg-slate-800 text-white font-medium px-8 py-3.5 rounded-full hover:bg-slate-700 transition-all text-[15px]"
           >
             Start free trial
             <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
@@ -187,7 +187,7 @@ function Hero() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.6 }}
-          className="mt-8 text-[13px] text-slate-500"
+          className="mt-8 text-sm text-slate-500"
         >
           30 days free · No credit card · Cancel anytime
         </motion.p>
@@ -350,7 +350,7 @@ function Pricing() {
 
             <Link
               href="/register"
-              className="group flex items-center justify-center gap-2 w-full bg-slate-900 text-white font-medium py-3.5 rounded-full hover:bg-slate-800 transition-colors text-[15px] mb-10"
+              className="group flex items-center justify-center gap-2 w-full bg-slate-800 text-white font-medium py-3.5 rounded-full hover:bg-slate-700 transition-colors text-[15px] mb-10"
             >
               Start free trial
               <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
@@ -394,7 +394,7 @@ function CTA() {
         <motion.div variants={fade} custom={2}>
           <Link
             href="/register"
-            className="group inline-flex items-center gap-2 bg-slate-900 text-white font-medium px-8 py-3.5 rounded-full hover:bg-slate-800 transition-all text-[15px]"
+            className="group inline-flex items-center gap-2 bg-slate-800 text-white font-medium px-8 py-3.5 rounded-full hover:bg-slate-700 transition-all text-[15px]"
           >
             Get started
             <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
@@ -412,7 +412,7 @@ function Footer() {
     <footer className="border-t border-slate-200 py-12 px-6">
       <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center">
+          <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center">
             <Zap size={12} className="text-white" />
           </div>
           <span className="font-bold text-[15px]">Turboman</span>

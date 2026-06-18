@@ -14,7 +14,6 @@ function VerifyEmailContent() {
   const called = useRef(false);
 
   useEffect(() => {
-    // Guard against React StrictMode double-invocation
     if (called.current) return;
     called.current = true;
 
@@ -42,27 +41,30 @@ function VerifyEmailContent() {
   }, [token]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm text-center space-y-4">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-brand shadow-lg shadow-brand/30 mb-2">
-          <Zap size={20} className="text-white" />
-        </div>
+        <Link href="/" className="inline-flex items-center gap-2.5 mb-4">
+          <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center">
+            <Zap size={15} className="text-white" />
+          </div>
+          <span className="text-xl font-bold tracking-tight text-slate-900">Turboman</span>
+        </Link>
 
         {status === "loading" && (
           <>
-            <Loader size={32} className="animate-spin text-brand mx-auto" />
+            <Loader size={28} className="animate-spin text-slate-400 mx-auto" />
             <p className="text-slate-500 text-sm">Verifying your email…</p>
           </>
         )}
 
         {status === "success" && (
           <>
-            <CheckCircle size={40} className="text-emerald-500 mx-auto" />
-            <h1 className="text-xl font-bold text-slate-900">Email verified!</h1>
-            <p className="text-slate-500 text-sm">{message}</p>
+            <CheckCircle size={36} className="text-emerald-500 mx-auto" />
+            <h1 className="text-xl font-bold text-slate-900">Email verified</h1>
+            <p className="text-slate-600 text-sm">{message}</p>
             <Link
               href="/login"
-              className="inline-block mt-2 bg-brand text-white font-semibold text-sm px-6 py-2.5 rounded-lg hover:bg-brand-dark transition-colors"
+              className="inline-block mt-2 bg-slate-800 hover:bg-slate-700 text-white font-medium text-sm px-6 py-2.5 rounded-full transition-colors"
             >
               Log in to your account
             </Link>
@@ -71,10 +73,10 @@ function VerifyEmailContent() {
 
         {status === "error" && (
           <>
-            <XCircle size={40} className="text-red-500 mx-auto" />
+            <XCircle size={36} className="text-red-500 mx-auto" />
             <h1 className="text-xl font-bold text-slate-900">Verification failed</h1>
-            <p className="text-slate-500 text-sm">{message}</p>
-            <Link href="/login" className="block text-sm font-medium text-brand hover:underline mt-2">
+            <p className="text-slate-600 text-sm">{message}</p>
+            <Link href="/login" className="block text-sm font-medium text-slate-900 hover:underline mt-2">
               Back to login
             </Link>
           </>

@@ -19,7 +19,6 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // Pre-check backend directly to get the real error message before NextAuth swallows it
       const check = await fetch("/api/backend/auth/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -46,51 +45,44 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
-      {/* Subtle ambient glow */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-brand/10 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative w-full max-w-sm px-5 sm:px-4">
-        {/* Logo / brand */}
+    <div className="min-h-screen flex items-center justify-center bg-[#fafafa] px-4">
+      <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-brand shadow-lg shadow-brand/40 mb-4">
-            <Zap size={22} className="text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Turboman</h1>
-          <p className="text-slate-400 mt-1.5 text-sm">Sign in to your dashboard</p>
+          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
+            <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center">
+              <Zap size={15} className="text-white" />
+            </div>
+            <span className="text-xl font-bold tracking-tight text-slate-900">Turboman</span>
+          </Link>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h1>
+          <p className="text-slate-500 mt-1.5 text-sm">Sign in to your dashboard</p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white rounded-2xl shadow-2xl shadow-black/30 p-8 space-y-5 border border-slate-100"
+          className="bg-white rounded-2xl border border-slate-200 p-8 space-y-5"
         >
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition"
-              placeholder="admin@yourdomain.com"
+              className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition"
+              placeholder="you@company.com"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition"
                 placeholder="••••••••"
               />
               <button
@@ -113,23 +105,25 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2.5 text-sm transition-colors disabled:opacity-60 shadow-sm shadow-brand/20"
+            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-full py-2.5 text-sm transition-colors disabled:opacity-60"
           >
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
 
-        <p className="text-center text-sm text-slate-500 mt-6">
-          Don&apos;t have an account?{" "}
-          <Link href="/register" className="font-medium text-brand hover:underline">
-            Start free trial
-          </Link>
-        </p>
-        <p className="text-center text-sm text-slate-500 mt-2">
-          <Link href="/forgot-password" className="hover:underline">
-            Forgot your password?
-          </Link>
-        </p>
+        <div className="text-center mt-6 space-y-2">
+          <p className="text-sm text-slate-500">
+            Don&apos;t have an account?{" "}
+            <Link href="/register" className="font-medium text-slate-900 hover:underline">
+              Start free trial
+            </Link>
+          </p>
+          <p className="text-sm text-slate-500">
+            <Link href="/forgot-password" className="hover:underline">
+              Forgot your password?
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );
