@@ -386,7 +386,8 @@ class TenantSettingsUpdate(BaseModel):
     business_hours_start: str | None = None
     business_hours_end: str | None = None
     business_timezone: str | None = None
-    oncall_escalation_timeout_minutes: int | None = None
+    oncall_voice_timeout_minutes: int | None = None
+    oncall_sms_timeout_minutes: int | None = None
     oncall_notification_method: str | None = None  # voice | sms | both
     oncall_fallback_delay_minutes: int | None = None
     escalation_phone: E164Phone | None = None
@@ -407,7 +408,7 @@ async def get_settings(tenant_id: str = Depends(_get_tenant_id)):
         db.table("tenants")
         .select(
             "id, name, phone, business_hours_start, business_hours_end, business_timezone, "
-            "oncall_escalation_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes, "
+            "oncall_voice_timeout_minutes, oncall_sms_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes, "
             "escalation_phone, escalation_phone_after_hours, cartesia_voice_id, "
             "kb_about, kb_services, kb_hours_description, kb_rate_regular, kb_rate_after_hours, "
             "kb_rate_maintenance, kb_extra, plan, trial_ends_at"

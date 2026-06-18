@@ -12,9 +12,8 @@ from twilio.rest import Client as TwilioClient
 import sentry_sdk
 
 from src.config import settings
-from src.db.queries import create_call, create_escalation, end_call, get_tenant_by_phone, upsert_customer
+from src.db.queries import create_call, end_call, get_tenant_by_phone, upsert_customer
 from src.db.rag import search_kb
-from src.utils.business_hours import is_after_hours as _is_after_hours
 from src.orchestrator import run_turn
 from src.services.cartesia import stream_tts
 from src.services.deepgram import STTStream
@@ -60,7 +59,8 @@ class CallState:
     kb_context: list[str] = field(default_factory=list)
     transcript_lines: list[str] = field(default_factory=list)
     is_speaking: bool = False
-    is_escalated: bool = False   # set True once escalation fires; prevents double end_call
+    is_ended: bool = False
+    should_transfer: bool = False
     start_time: float = field(default_factory=time.time)
     reprompt_count: int = 0
     silence_task: asyncio.Task | None = None
@@ -70,7 +70,6 @@ class CallState:
     _debounce_task: asyncio.Task | None = None
     _pending_transcript: str = ""
     redis_client: any = field(default=None)
-    escalate_summary: str = ""
 
 
 async def handle_call_websocket(websocket: WebSocket, redis_client):
@@ -135,10 +134,9 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
 
     def on_stt_error(e: Exception):
         sentry_sdk.capture_exception(e)
-        logger.error("STT error — escalating to human", error=str(e))
+        logger.error("STT error", error=str(e))
         _cancel_turn(state)
         _cancel_debounce(state)
-        asyncio.ensure_future(_handle_escalation(websocket, state))
 
     stt = STTStream(
         on_transcript=on_transcript,
@@ -150,8 +148,7 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
         logger.info("Deepgram STT connected")
     except Exception as e:
         sentry_sdk.capture_exception(e)
-        logger.error("Deepgram STT connect failed — escalating", error=str(e))
-        await _handle_escalation(websocket, state)
+        logger.error("Deepgram STT connect failed", error=str(e))
         return
 
     try:
@@ -166,8 +163,7 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
                 try:
                     await _on_call_start(websocket, state, params, redis_client)
                 except Exception as e:
-                    logger.error("Call setup failed — escalating to human", error=str(e))
-                    await _handle_escalation(websocket, state)
+                    logger.error("Call setup failed", error=str(e))
                     break
                 _start_silence_timer(websocket, state)
 
@@ -188,7 +184,8 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
         _cancel_turn(state)
         await stt.close()
         _cancel_silence_timer(state)
-        if state.call_record and not state.is_escalated:
+        if state.call_record and not state.is_ended:
+            state.is_ended = True
             duration = int(time.time() - state.start_time)
             transcript = "\n".join(state.transcript_lines)
             await end_call(state.call_record["id"], "completed", duration, transcript)
@@ -196,7 +193,6 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
             message="Call ended",
             data={
                 "call_sid": state.call_sid,
-                "outcome": "escalated" if state.is_escalated else "completed",
                 "duration_s": int(time.time() - state.start_time),
                 "turns": len(state.history),
             },
@@ -282,8 +278,8 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
                 phone = state.customer.get("phone")
                 if phone:
                     await send_confirmation_sms(phone, result["message"], state.tenant.get("phone"))
-            if name == "escalate_to_human":
-                state.escalate_summary = action["input"].get("summary", "")
+            if name == "transfer_call" and result.get("transfer"):
+                state.should_transfer = True
 
         try:
             result = await run_turn(
@@ -302,8 +298,7 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
             sentry_sdk.capture_exception(e)
             logger.error("LLM turn failed", error=str(e))
             await _speak_and_wait(websocket, state,
-                "I'm sorry, I had a technical issue. Let me connect you with someone who can help.")
-            await _handle_escalation(websocket, state)
+                "I'm sorry, I had a technical issue. Your request has been noted and someone from the team will follow up. Thank you for calling.")
             return
 
         # Keep history bounded to avoid token explosion on long calls
@@ -316,8 +311,8 @@ async def _handle_caller_turn(websocket: WebSocket, state: CallState, user_input
         state.history = updated
         state.transcript_lines.append(f"agent: {result['response_text']}")
 
-        if result["escalate"]:
-            await _handle_escalation(websocket, state)
+        if state.should_transfer:
+            await _transfer_call(websocket, state)
             return
 
         # Twilio has the audio queued but hasn't finished playing it yet.
@@ -360,7 +355,7 @@ async def _speak(websocket: WebSocket, state: CallState, text: str) -> tuple[int
 
     def on_tts_error(e: Exception):
         state.is_speaking = False
-        asyncio.ensure_future(_handle_escalation(websocket, state))
+        logger.error("TTS error during speech", error=str(e))
 
     voice_id = state.tenant.get("cartesia_voice_id") or None
     t0 = time.monotonic()
@@ -444,101 +439,41 @@ def _cancel_silence_timer(state: CallState):
     state.silence_task = None
 
 
-async def _handle_escalation(websocket: WebSocket, state: CallState):
-    if state.is_escalated:
-        return  # already escalating — don't fire twice
-    state.is_escalated = True
-
-    logger.info("Call escalated", call_sid=state.call_sid)
+async def _transfer_call(websocket: WebSocket, state: CallState):
+    """Transfer the active call to the tenant's escalation phone number via Twilio."""
+    if state.is_ended:
+        return
+    state.is_ended = True
 
     _cancel_silence_timer(state)
 
-    await _speak_and_wait(websocket, state,
-        "I'm going to connect you with one of our team members right now. Please hold just a moment.")
-
-    if state.call_record:
-        duration = int(time.time() - state.start_time)
-        await end_call(
-            state.call_record["id"], "escalated", duration,
-            "\n".join(state.transcript_lines),
-        )
-
-    # Create escalation record and store context in Redis
-    name = (state.customer or {}).get("name") or "unknown caller"
-    inquiry = state.escalate_summary or (
-        ". ".join(
-            l[len("caller: "):] for l in state.transcript_lines[-4:] if l.startswith("caller: ")
-        ) or "No details captured."
-    )
-
-    escalation_id: str | None = None
-    tenant_id = state.tenant.get("id", "")
-    if tenant_id:
-        try:
-            escalation_id = await create_escalation(
-                tenant_id=tenant_id,
-                call_id=state.call_record["id"] if state.call_record else None,
-                customer_id=(state.customer or {}).get("id"),
-                summary=inquiry[:500],
-            )
-        except Exception as e:
-            logger.error("Failed to create escalation record", error=str(e))
-
-    context = json.dumps({
-        "name": name,
-        "phone": (state.customer or {}).get("phone", ""),
-        "inquiry": inquiry[:500],
-        "tenant_id": tenant_id,
-        "customer_id": (state.customer or {}).get("id"),
-        "escalation_id": escalation_id,
-    })
-    if state.redis_client and state.call_sid:
-        await state.redis_client.set(f"escalation:{state.call_sid}", context, ex=3600)
-
-    # Pick the right escalation number: tenant after-hours number (if configured and
-    # currently after-hours), tenant regular number, or global env-var fallback.
-    after_hours_phone = state.tenant.get("escalation_phone_after_hours") or ""
-    regular_phone = state.tenant.get("escalation_phone") or ""
-    after_hours = _is_after_hours(state.tenant)
     escalation_phone = (
-        (after_hours_phone if after_hours else regular_phone)
-        or regular_phone
-        or after_hours_phone
+        state.tenant.get("escalation_phone")
+        or state.tenant.get("escalation_phone_after_hours")
         or settings.escalation_phone
     )
 
     import re as _re
-    _E164_RE = _re.compile(r"^\+[1-9]\d{7,14}$")
+    if not escalation_phone or not _re.match(r"^\+[1-9]\d{7,14}$", escalation_phone):
+        logger.warning("No valid escalation phone — cannot transfer", tenant_id=state.tenant.get("id"))
+        await _speak_and_wait(websocket, state,
+            "I'm sorry, I'm unable to transfer you right now. "
+            "I've logged your request and someone from the team will call you back as soon as possible.")
+        return
 
-    if escalation_phone and not _E164_RE.match(escalation_phone):
-        logger.error("Escalation phone is not valid E.164 — skipping warm transfer", phone=escalation_phone)
-        escalation_phone = ""
+    if state.call_record:
+        duration = int(time.time() - state.start_time)
+        await end_call(state.call_record["id"], "transferred", duration, "\n".join(state.transcript_lines))
 
-    if escalation_phone and state.call_sid:
-        from urllib.parse import quote as _quote
-        base = settings.base_url.rstrip("/") if settings.base_url else ""
-        if base:
-            whisper_url = f"{base}/call-whisper?call_sid={_quote(state.call_sid)}"
-            action_url = f"{base}/call-dial-action?call_sid={_quote(state.call_sid)}"
-            twiml = (
-                '<?xml version="1.0" encoding="UTF-8"?>'
-                "<Response>"
-                f'<Dial action="{action_url}" timeout="30">'
-                f'<Number url="{whisper_url}" method="POST">{escalation_phone}</Number>'
-                "</Dial>"
-                "</Response>"
-            )
-        else:
-            twiml = (
-                '<?xml version="1.0" encoding="UTF-8"?>'
-                f'<Response><Dial timeout="30">{escalation_phone}</Dial></Response>'
-            )
-        try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, lambda: _twilio.calls(state.call_sid).update(twiml=twiml))
-            logger.info("Warm transfer initiated", to=escalation_phone, after_hours=after_hours)
-        except Exception as e:
-            logger.error("Warm transfer failed", error=str(e))
-    else:
-        logger.warning("No escalation phone configured for tenant — call left on hold",
-                       tenant_id=state.tenant.get("id"))
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<Response><Dial timeout="30">{escalation_phone}</Dial></Response>'
+    )
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: _twilio.calls(state.call_sid).update(twiml=twiml))
+        logger.info("Call transferred", to=escalation_phone)
+    except Exception as e:
+        logger.error("Call transfer failed", error=str(e))
+
+

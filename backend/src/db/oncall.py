@@ -88,7 +88,7 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
         .select(
             "status, tenant_id, "
             "service_requests(service_type, address, is_emergency, "
-            "  tenants(name, phone, oncall_escalation_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes), "
+            "  tenants(name, phone, oncall_voice_timeout_minutes, oncall_sms_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes), "
             "  customers(phone, name))"
         )
         .eq("id", dispatch_id)
@@ -112,11 +112,23 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
         "address": sr.get("address"),
         "customer_phone": customer.get("phone"),
         "customer_name": customer.get("name"),
-        "timeout_minutes": tenant.get("oncall_escalation_timeout_minutes") or 10,
+        "voice_timeout_minutes": tenant.get("oncall_voice_timeout_minutes") or 5,
+        "sms_timeout_minutes": tenant.get("oncall_sms_timeout_minutes") or 10,
         "notification_method": tenant.get("oncall_notification_method") or "both",
         "is_emergency": bool(sr.get("is_emergency", True)),
         "fallback_delay_minutes": tenant.get("oncall_fallback_delay_minutes") if tenant.get("oncall_fallback_delay_minutes") is not None else 5,
     }
+
+
+async def cancel_dispatch_timeouts(dispatch_id: str) -> None:
+    """Mark all pending timeout records for this dispatch as processed so the poller skips them."""
+    await (
+        db.table("dispatch_sms_timeouts")
+        .update({"processed": True})
+        .eq("dispatch_id", dispatch_id)
+        .eq("processed", False)
+        .execute()
+    )
 
 
 async def acknowledge_dispatch(
@@ -134,6 +146,7 @@ async def acknowledge_dispatch(
     if tech_id:
         updates["acknowledged_by_tech_id"] = tech_id
     await db.table("oncall_dispatches").update(updates).eq("id", dispatch_id).execute()
+    await cancel_dispatch_timeouts(dispatch_id)
 
 
 async def acknowledge_dispatch_for_tenant(tenant_id: str) -> bool:

@@ -63,6 +63,21 @@ TOOLS = [
         },
     },
     {
+        "name": "transfer_call",
+        "description": (
+            "Transfer the call to a team member. "
+            "Use only when the customer explicitly asks to speak to a person, "
+            "or the situation is too complex to handle."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "Why the call is being transferred"},
+            },
+            "required": ["reason"],
+        },
+    },
+    {
         "name": "save_customer_info",
         "description": (
             "Save the customer's name to their account. "
@@ -74,27 +89,6 @@ TOOLS = [
                 "name": {"type": "string", "description": "Customer's full name as they stated it"},
             },
             "required": ["name"],
-        },
-    },
-    {
-        "name": "escalate_to_human",
-        "description": (
-            "Transfer the call to a human agent. "
-            "Use when the customer is upset, the situation is complex, or they explicitly ask for a person."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {"type": "string"},
-                "summary": {
-                    "type": "string",
-                    "description": (
-                        "Handoff brief for the human agent. Include: customer name, "
-                        "service address, and a one-sentence description of their inquiry."
-                    ),
-                },
-            },
-            "required": ["reason", "summary"],
         },
     },
 ]

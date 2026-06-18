@@ -191,7 +191,7 @@ async def _dispatch_to_contact(
             base = settings.base_url.rstrip("/")
             try:
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
+                call = await loop.run_in_executor(
                     None,
                     lambda: _client.calls.create(
                         to=tech["phone"],
@@ -202,7 +202,8 @@ async def _dispatch_to_contact(
                         timeout=30,
                     ),
                 )
-                logger.info("Oncall call initiated", name=tech["name"], role=role, dispatch_id=dispatch_id)
+                await db.table("oncall_dispatches").update({"active_call_sid": call.sid}).eq("id", dispatch_id).execute()
+                logger.info("Oncall call initiated", name=tech["name"], role=role, dispatch_id=dispatch_id, call_sid=call.sid)
                 notified = True
             except Exception as e:
                 logger.error("Failed to initiate oncall call", name=tech["name"], phone=tech["phone"], error=str(e))
@@ -228,15 +229,19 @@ async def _dispatch_to_contact(
         )
         raise RuntimeError(f"Failed to notify on-call contact {tech['name']} via any method")
 
+    # Schedule timeout — if the tech doesn't respond within the window, the
+    # background poller will escalate to the next contact.
+    ctx = await get_dispatch_context(dispatch_id)
     if effective_method == "sms":
-        ctx = await get_dispatch_context(dispatch_id)
-        timeout = ctx["timeout_minutes"] if ctx else 10
-        escalate_at = datetime.now(timezone.utc) + timedelta(minutes=timeout)
-        await db.table("dispatch_sms_timeouts").insert({
-            "dispatch_id": dispatch_id,
-            "tech_id": tech["id"],
-            "escalate_at": escalate_at.isoformat(),
-        }).execute()
+        timeout = ctx["sms_timeout_minutes"] if ctx else 10
+    else:
+        timeout = ctx["voice_timeout_minutes"] if ctx else 5
+    escalate_at = datetime.now(timezone.utc) + timedelta(minutes=timeout)
+    await db.table("dispatch_sms_timeouts").insert({
+        "dispatch_id": dispatch_id,
+        "tech_id": tech["id"],
+        "escalate_at": escalate_at.isoformat(),
+    }).execute()
 
 
 async def _exhaust_dispatch(dispatch_id: str, *, customer_phone: str | None, any_declined: bool = False, delay_minutes: int = 5) -> None:

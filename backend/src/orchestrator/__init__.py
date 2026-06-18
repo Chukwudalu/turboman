@@ -37,7 +37,7 @@ async def run_turn(
     across every turn of a call, so Claude caches it after the first turn,
     cutting per-turn cost by ~70% and latency by ~30ms.
 
-    Returns: { response_text, updated_history, escalate }
+    Returns: { response_text, updated_history }
     """
     clean = sanitize_caller_input(user_input)
 
@@ -45,7 +45,7 @@ async def run_turn(
         logger.warn("Prompt injection attempt detected")
         msg = "I'm sorry, I didn't quite catch that. Could you rephrase?"
         await on_chunk(msg)
-        return {"response_text": msg, "updated_history": history, "escalate": False}
+        return {"response_text": msg, "updated_history": history}
 
     messages = [*history, {"role": "user", "content": clean}]
 
@@ -62,7 +62,6 @@ async def run_turn(
 
     full_response = ""
     buffer = ""
-    escalate = False
 
     # ── Streaming LLM call ─────────────────────────────────────────────────────
     async with client.messages.stream(
@@ -110,9 +109,6 @@ async def run_turn(
             if on_action:
                 await on_action({"name": tool.name, "input": tool.input, "result": result})
 
-            if tool.name == "escalate_to_human":
-                escalate = True
-
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tool.id,
@@ -139,4 +135,4 @@ async def run_turn(
             await on_chunk(follow_up)
 
     updated_history = [*messages, {"role": "assistant", "content": full_response}]
-    return {"response_text": full_response, "updated_history": updated_history, "escalate": escalate}
+    return {"response_text": full_response, "updated_history": updated_history}

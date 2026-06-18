@@ -9,6 +9,14 @@ import {
 import { api, type OncallTechnician, type TeamMember } from "@/lib/api";
 import { decodeTenantId, decodeRole } from "@/lib/jwt";
 
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/[\s\-\(\)\.]/g, "");
+  if (digits.startsWith("+")) return digits;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return digits;
+}
+
 const TIMEZONES = [
   { value: "America/New_York",    label: "Eastern (ET)" },
   { value: "America/Chicago",     label: "Central (CT)" },
@@ -59,7 +67,7 @@ function ContactSection({
     if (!name.trim() || !phone.trim()) { setError("Name and phone are required."); return; }
     setAdding(true); setError(null);
     try {
-      await onAdd(name.trim(), phone.trim(), email.trim());
+      await onAdd(name.trim(), normalizePhone(phone.trim()), email.trim());
       setName(""); setPhone(""); setEmail(""); setShowForm(false);
     } catch { setError("Failed to add. Please try again."); }
     finally { setAdding(false); }
@@ -93,8 +101,8 @@ function ContactSection({
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent bg-white" />
               </div>
               <div>
-                <label className="text-xs text-slate-500 block mb-1">Phone * (E.164 e.g. +14155551234)</label>
-                <input type="tel" placeholder="+14155551234" value={phone} onChange={(e) => setPhone(e.target.value)}
+                <label className="text-xs text-slate-500 block mb-1">Phone *</label>
+                <input type="tel" placeholder="6045551234" value={phone} onChange={(e) => setPhone(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent bg-white" />
               </div>
               <div className="sm:col-span-2">
@@ -322,7 +330,8 @@ export default function SettingsPage() {
   const [saveErrorHours, setSaveErrorHours] = useState<string | null>(null);
 
   // On-call settings
-  const [timeout, setTimeout_] = useState(10);
+  const [voiceTimeout, setVoiceTimeout] = useState(5);
+  const [smsTimeout, setSmsTimeout] = useState(10);
   const [notifMethod, setNotifMethod] = useState<"voice" | "sms" | "both">("both");
   const [fallbackDelay, setFallbackDelay] = useState(5);
   const [savingNotif, setSavingNotif] = useState(false);
@@ -358,7 +367,8 @@ export default function SettingsPage() {
       setStart(s.business_hours_start || "09:00");
       setEnd(s.business_hours_end || "17:00");
       setTz(s.business_timezone || "America/New_York");
-      setTimeout_(s.oncall_escalation_timeout_minutes ?? 10);
+      setVoiceTimeout(s.oncall_voice_timeout_minutes ?? 5);
+      setSmsTimeout(s.oncall_sms_timeout_minutes ?? 10);
       setNotifMethod(s.oncall_notification_method ?? "both");
       setFallbackDelay(s.oncall_fallback_delay_minutes ?? 5);
       setEscalationPhone(s.escalation_phone ?? "");
@@ -395,7 +405,8 @@ export default function SettingsPage() {
     setSavingNotif(true); setSavedNotif(false);
     try {
       await api.updateTenantSettings(token, tenantId, {
-        oncall_escalation_timeout_minutes: timeout,
+        oncall_voice_timeout_minutes: voiceTimeout,
+        oncall_sms_timeout_minutes: smsTimeout,
         oncall_notification_method: notifMethod,
         oncall_fallback_delay_minutes: fallbackDelay,
       });
@@ -408,8 +419,8 @@ export default function SettingsPage() {
     setSavingEscalation(true); setSavedEscalation(false); setSaveErrorEscalation(null);
     try {
       await api.updateTenantSettings(token, tenantId, {
-        escalation_phone: escalationPhone || undefined,
-        escalation_phone_after_hours: escalationPhoneAfterHours || undefined,
+        escalation_phone: escalationPhone ? normalizePhone(escalationPhone) : undefined,
+        escalation_phone_after_hours: escalationPhoneAfterHours ? normalizePhone(escalationPhoneAfterHours) : undefined,
       });
       setSavedEscalation(true);
       setTimeout(() => setSavedEscalation(false), 3000);
@@ -618,18 +629,26 @@ export default function SettingsPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-3 pt-1">
-            <label className="text-xs font-medium text-slate-600 whitespace-nowrap">Response timeout</label>
-            <input type="number" min={1} max={60} value={timeout} onChange={(e) => setTimeout_(Number(e.target.value))}
-              className="w-20 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
-            <span className="text-xs text-slate-500">minutes before escalating to next contact</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-medium text-slate-600 whitespace-nowrap">Voice timeout</label>
+              <input type="number" min={1} max={60} value={voiceTimeout} onChange={(e) => setVoiceTimeout(Number(e.target.value))}
+                className="w-20 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
+              <span className="text-xs text-slate-500">min to call back before next tech</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-medium text-slate-600 whitespace-nowrap">SMS timeout</label>
+              <input type="number" min={1} max={60} value={smsTimeout} onChange={(e) => setSmsTimeout(Number(e.target.value))}
+                className="w-20 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
+              <span className="text-xs text-slate-500">min to reply before next tech</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-3 pt-1">
-            <label className="text-xs font-medium text-slate-600 whitespace-nowrap">Callback grace period</label>
+            <label className="text-xs font-medium text-slate-600 whitespace-nowrap">Customer fallback delay</label>
             <input type="number" min={0} max={30} value={fallbackDelay} onChange={(e) => setFallbackDelay(Number(e.target.value))}
               className="w-20 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
-            <span className="text-xs text-slate-500">minutes to wait after missed dispatch before notifying customer — gives techs time to call back</span>
+            <span className="text-xs text-slate-500">min after all contacts exhausted before notifying customer</span>
           </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
@@ -659,18 +678,18 @@ export default function SettingsPage() {
                 <label className="text-xs font-medium text-slate-600 block mb-1.5">Business hours number</label>
                 <input
                   type="tel"
-                  placeholder="+14155551234"
+                  placeholder="6045551234"
                   value={escalationPhone}
                   onChange={(e) => setEscalationPhone(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                 />
-                <p className="text-xs text-slate-400 mt-1">Used during business hours. E.164 format.</p>
+                <p className="text-xs text-slate-400 mt-1">Used during business hours.</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-600 block mb-1.5">After-hours number <span className="font-normal text-slate-400">(optional)</span></label>
                 <input
                   type="tel"
-                  placeholder="+14155559876"
+                  placeholder="6045559876"
                   value={escalationPhoneAfterHours}
                   onChange={(e) => setEscalationPhoneAfterHours(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"

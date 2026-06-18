@@ -4,7 +4,7 @@ from src.actions.book_job import book_job
 from src.actions.reschedule_job import reschedule_job
 from src.actions.get_status import get_status
 from src.actions.get_quote import get_quote
-from src.actions.escalate import escalate
+from src.actions.transfer_call import transfer_call
 from src.actions.save_customer_info import save_customer_info
 from src.db.queries import log_action
 from src.utils.logger import logger
@@ -14,7 +14,7 @@ _ACTION_MAP = {
     "reschedule_job": reschedule_job,
     "get_job_status": get_status,
     "get_quote": get_quote,
-    "escalate_to_human": escalate,
+    "transfer_call": transfer_call,
     "save_customer_info": save_customer_info,
 }
 

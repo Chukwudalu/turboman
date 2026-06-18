@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Cartesia
     cartesia_api_key: str = ""
     cartesia_voice_id: str = ""
-    cartesia_model: str = "sonic-english"
+    cartesia_model: str = "sonic-2"
 
     # Anthropic
     anthropic_api_key: str = ""

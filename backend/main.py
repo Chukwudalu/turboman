@@ -11,6 +11,7 @@ from fastapi.responses import PlainTextResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from twilio.request_validator import RequestValidator
+from twilio.rest import Client as TwilioRestClient
 
 from src.admin.router import router as admin_router
 from src.auth.router import router as auth_router
@@ -84,10 +85,9 @@ async def _poll_pending_notifications() -> None:
 
 
 async def _poll_dispatch_sms_timeouts() -> None:
-    """Every 30 s, escalate SMS-only dispatches whose reply window has expired.
+    """Every 30 s, escalate dispatches whose response window has expired (voice or SMS).
 
-    Rows are written by _dispatch_to_contact and survive server restarts,
-    unlike the previous asyncio.create_task approach.
+    Rows are written by _dispatch_to_contact and survive server restarts.
     """
     while True:
         await asyncio.sleep(30)
@@ -109,7 +109,7 @@ async def _poll_dispatch_sms_timeouts() -> None:
                     dispatch = await get_dispatch(row["dispatch_id"])
                     if dispatch and dispatch["status"] == "dispatching":
                         logger.info(
-                            "SMS timeout — tech did not reply, escalating",
+                            "Dispatch timeout — tech did not respond, escalating",
                             dispatch_id=row["dispatch_id"],
                             tech_id=row["tech_id"],
                         )
@@ -191,6 +191,7 @@ async def health(request: Request):
 # ── Twilio signature validation dependency ─────────────────────────────────────
 
 _twilio_validator = RequestValidator(settings.twilio_auth_token)
+_twilio_client = TwilioRestClient(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
 async def _verify_twilio(request: Request) -> None:
@@ -199,8 +200,13 @@ async def _verify_twilio(request: Request) -> None:
         return
     form = await request.form()
     signature = request.headers.get("X-Twilio-Signature", "")
-    if not _twilio_validator.validate(str(request.url), dict(form), signature):
-        logger.warning("Invalid Twilio signature rejected", url=str(request.url))
+    # Railway's proxy terminates TLS, so request.url reports scheme=http even though
+    # Twilio signed the https URL it actually called. Rebuild using the public base URL.
+    url = settings.base_url.rstrip("/") + request.url.path
+    if request.url.query:
+        url += f"?{request.url.query}"
+    if not _twilio_validator.validate(url, dict(form), signature):
+        logger.warning("Invalid Twilio signature rejected", url=url)
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
@@ -447,15 +453,12 @@ async def oncall_call_status(
     dispatch_id: str = Query(...),
     tech_id: str = Query(...),
 ):
-    """Twilio status callback — if call wasn't answered, escalate to next tech."""
+    """Twilio status callback — logs unanswered calls. The timeout poller handles escalation."""
     form = await request.form()
     call_status = form.get("CallStatus", "")
 
     if call_status in ("no-answer", "busy", "failed", "canceled"):
-        logger.info("Oncall call unanswered", status=call_status, dispatch_id=dispatch_id, tech_id=tech_id)
-        dispatch = await get_dispatch(dispatch_id)
-        if dispatch and dispatch["status"] == "dispatching":
-            asyncio.create_task(_guarded(try_next_tech(dispatch_id, tech_id)))
+        logger.info("Oncall call unanswered — waiting for callback or timeout", status=call_status, dispatch_id=dispatch_id, tech_id=tech_id)
 
     return PlainTextResponse("", status_code=204)
 
@@ -473,80 +476,35 @@ async def sms_incoming(request: Request, From: str = Form("")):
     result = await db.table("oncall_technicians").select("tenant_id").eq("phone", From).eq("active", True).limit(1).execute()
     if result.data:
         tenant_id = result.data[0]["tenant_id"]
+        # Get dispatch before acknowledging so we can cancel the active call
+        dispatch_result = await (
+            db.table("oncall_dispatches")
+            .select("id, active_call_sid")
+            .eq("tenant_id", tenant_id)
+            .eq("status", "dispatching")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
         acknowledged = await acknowledge_dispatch_for_tenant(tenant_id)
         if acknowledged:
             logger.info("Oncall dispatch acknowledged via SMS", from_phone=From)
+            # Cancel the active voice call if one is ringing
+            if dispatch_result.data and dispatch_result.data[0].get("active_call_sid"):
+                call_sid = dispatch_result.data[0]["active_call_sid"]
+                try:
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        lambda: _twilio_client.calls(call_sid).update(status="completed"),
+                    )
+                    logger.info("Cancelled active oncall voice call after SMS accept", call_sid=call_sid)
+                except Exception as e:
+                    logger.warning("Could not cancel oncall voice call", call_sid=call_sid, error=str(e))
 
     return PlainTextResponse(
         '<?xml version="1.0"?><Response></Response>',
         media_type="application/xml",
-    )
-
-
-# ── Escalation whisper + no-answer fallback ────────────────────────────────────
-
-@app.post("/call-whisper", dependencies=[Depends(_verify_twilio)])
-async def call_whisper(request: Request, call_sid: str = Query(...)):
-    """Plays a briefing to the human agent the moment they pick up, before connecting to the caller."""
-    import json as _json
-    context_json = await request.app.state.redis.get(f"escalation:{call_sid}")
-    if context_json:
-        ctx = _json.loads(context_json)
-        name = ctx.get("name") or "unknown caller"
-        inquiry = ctx.get("inquiry") or "No details captured."
-        msg = (
-            f"Incoming transfer. Customer name: {name}. "
-            f"Inquiry: {inquiry} "
-            "You are now being connected to the customer."
-        )
-    else:
-        msg = "Incoming customer transfer. You are now being connected."
-
-    msg = msg.replace("&", "and").replace("<", "").replace(">", "")
-    return PlainTextResponse(
-        f'<?xml version="1.0" encoding="UTF-8"?><Response><Say>{msg}</Say></Response>',
-        media_type="text/xml",
-    )
-
-
-@app.post("/call-dial-action", dependencies=[Depends(_verify_twilio)])
-async def call_dial_action(request: Request, call_sid: str = Query(...)):
-    """Called by Twilio after <Dial> completes — handles no-answer by logging a callback request."""
-    import json as _json
-    form = await request.form()
-    dial_status = form.get("DialCallStatus", "")
-
-    context_json = await request.app.state.redis.get(f"escalation:{call_sid}")
-    ctx = _json.loads(context_json) if context_json else {}
-    escalation_id = ctx.get("escalation_id")
-
-    if dial_status in ("no-answer", "busy", "failed", "canceled"):
-        logger.info("Escalation agent did not answer — escalation stays pending", call_sid=call_sid)
-        return PlainTextResponse(
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            "<Response>"
-            "<Say>I was unable to reach a team member right now. "
-            "Your inquiry has been logged and someone will call you back as soon as possible. "
-            "Thank you for calling. Goodbye!</Say>"
-            "<Hangup/>"
-            "</Response>",
-            media_type="text/xml",
-        )
-
-    # Agent answered — mark escalation as bridged
-    if dial_status == "completed" and escalation_id:
-        try:
-            await db.table("escalations").update({"status": "bridged"}).eq("id", escalation_id).execute()
-        except Exception as e:
-            logger.error("Failed to mark escalation bridged", error=str(e))
-
-    return PlainTextResponse(
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        "<Response>"
-        "<Say>Thank you for your patience. A team member will reach out to you as soon as possible. Goodbye!</Say>"
-        "<Hangup/>"
-        "</Response>",
-        media_type="text/xml",
     )
 
 
