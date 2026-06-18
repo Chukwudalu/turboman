@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # Deepgram
     deepgram_api_key: str = ""
     deepgram_model: str = "nova-3"
-    deepgram_endpointing_ms: int = 800  # ms silence before STT fires is_final
+    deepgram_endpointing_ms: int = 650  # ms silence before STT fires is_final
 
     # Cartesia
     cartesia_api_key: str = ""
@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     # Call behaviour
     silence_reprompt_ms: int = 8000    # silence after AI finishes before first reprompt
     max_reprompts: int = 2              # after 2 unanswered reprompts, end the call
-    transcript_debounce_ms: int = 200   # wait after last is_final before processing
+    transcript_debounce_ms: int = 100   # wait after last is_final before processing
 
     @model_validator(mode="after")
     def check_required(self):
