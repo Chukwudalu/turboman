@@ -72,7 +72,8 @@ export interface TenantSettings {
   business_hours_start: string | null;
   business_hours_end: string | null;
   business_timezone: string | null;
-  oncall_escalation_timeout_minutes: number | null;
+  oncall_voice_timeout_minutes: number | null;
+  oncall_sms_timeout_minutes: number | null;
   oncall_notification_method: "voice" | "sms" | "both" | null;
   oncall_fallback_delay_minutes: number | null;
   escalation_phone: string | null;
