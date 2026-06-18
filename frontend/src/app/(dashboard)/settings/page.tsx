@@ -337,6 +337,12 @@ export default function SettingsPage() {
   const [savingNotif, setSavingNotif] = useState(false);
   const [savedNotif, setSavedNotif] = useState(false);
 
+  // Call confirmation settings
+  const [confirmName, setConfirmName] = useState(true);
+  const [confirmAddress, setConfirmAddress] = useState(true);
+  const [savingConfirm, setSavingConfirm] = useState(false);
+  const [savedConfirm, setSavedConfirm] = useState(false);
+
   // Forwarding number (read-only, provisioned by Turboman)
   const [forwardingPhone, setForwardingPhone] = useState<string | null>(null);
 
@@ -373,6 +379,8 @@ export default function SettingsPage() {
       setFallbackDelay(s.oncall_fallback_delay_minutes ?? 5);
       setEscalationPhone(s.escalation_phone ?? "");
       setEscalationPhoneAfterHours(s.escalation_phone_after_hours ?? "");
+      setConfirmName(s.confirm_name_spelling ?? true);
+      setConfirmAddress(s.confirm_address_spelling ?? true);
       setForwardingPhone(s.phone ?? null);
       setVoiceId(s.cartesia_voice_id ?? "");
       setLoading(false);
@@ -548,6 +556,52 @@ export default function SettingsPage() {
             <Save size={14} />{voiceSaving ? "Saving…" : "Save voice"}
           </button>
           {voiceSaved && <p className="text-sm text-green-600 font-medium">Saved!</p>}
+        </div>
+      </div>
+
+      {/* Spelling confirmation */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+          <Phone size={15} className="text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-700">Call confirmation</h2>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-sm text-slate-500">
+            When enabled, the AI will spell back the customer&apos;s name or address to confirm accuracy during the call.
+          </p>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={confirmName} onChange={(e) => setConfirmName(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-brand focus:ring-brand" />
+            <div>
+              <span className="text-sm font-medium text-slate-700">Spell back name</span>
+              <p className="text-xs text-slate-400">AI spells the customer&apos;s name back to confirm it was heard correctly</p>
+            </div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={confirmAddress} onChange={(e) => setConfirmAddress(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-brand focus:ring-brand" />
+            <div>
+              <span className="text-sm font-medium text-slate-700">Spell back address</span>
+              <p className="text-xs text-slate-400">AI asks for street, city, and postal code separately and spells each back</p>
+            </div>
+          </label>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
+          <button onClick={async () => {
+            setSavingConfirm(true); setSavedConfirm(false);
+            try {
+              await api.updateTenantSettings(token, tenantId, {
+                confirm_name_spelling: confirmName,
+                confirm_address_spelling: confirmAddress,
+              });
+              setSavedConfirm(true);
+              setTimeout(() => setSavedConfirm(false), 3000);
+            } finally { setSavingConfirm(false); }
+          }} disabled={savingConfirm || loading}
+            className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60">
+            <Save size={14} />{savingConfirm ? "Saving…" : "Save changes"}
+          </button>
+          {savedConfirm && <p className="text-sm text-green-600 font-medium">Saved!</p>}
         </div>
       </div>
 

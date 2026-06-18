@@ -29,7 +29,7 @@ _MULAW_BYTES_PER_SECOND = 8000
 _MIN_TRANSCRIPT_CHARS = 3
 
 # Minimum word count in a partial transcript to trigger barge-in
-_BARGE_IN_WORD_THRESHOLD = 2
+_BARGE_IN_WORD_THRESHOLD = 3
 
 # Maximum conversation turns to keep in history (prevents token explosion)
 _MAX_HISTORY_MESSAGES = 20

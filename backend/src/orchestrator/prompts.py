@@ -38,6 +38,8 @@ def build_system_prompt(tenant: dict, customer: dict | None, kb_context: list[st
     )
 
     name_known = bool(customer and customer.get("name"))
+    confirm_name = tenant.get("confirm_name_spelling", True) is not False
+    confirm_address = tenant.get("confirm_address_spelling", True) is not False
     logger.info(
         "Prompt built",
         biz_end=tenant.get("business_hours_end"),
@@ -45,20 +47,61 @@ def build_system_prompt(tenant: dict, customer: dict | None, kb_context: list[st
         tz=tenant.get("business_timezone"),
     )
 
+    if confirm_address:
+        address_flow = """\
+Ask for the address in three separate steps. Do NOT combine them into one question.
+a. Ask: "What's your street address?" \
+Once they provide it, say: "Let me spell that back to make sure I have it right" then spell it out clearly. \
+Ask: "Is that correct?" If they correct it, spell the corrected version back before moving on.
+b. Ask: "And what city is that in?" \
+Once they provide it, spell it back to confirm. Ask: "Is that correct?" \
+If they correct it, spell the corrected version back before moving on.
+c. Ask: "And your postal code?" \
+Once they provide it, spell it back to confirm. Ask: "Is that correct?" \
+If they correct it, spell the corrected version back before moving on."""
+    else:
+        address_flow = """\
+Ask for the address in three separate steps. Do NOT combine them into one question.
+a. Ask: "What's your street address?" Once they provide it, move on.
+b. Ask: "And what city is that in?" Once they provide it, move on.
+c. Ask: "And your postal code?" Once they provide it, move on."""
+
+    if confirm_name:
+        name_step = """\
+Ask for the customer's name in two parts. Do NOT ask for both at once.
+  i. Ask: "Can I get your first name?" Once they provide it, spell it back to confirm: \
+"Just to make sure I have it right, is that [spell out first name]?" \
+If they correct it, spell the corrected version back before moving on.
+  ii. Ask: "And your last name?" Once they provide it, spell it back to confirm: \
+"And that's [spell out last name]?" If they correct it, spell the corrected version back.
+  If the customer declines to give a last name, accept just the first name.
+  If they refuse to give any name at all, explain that you need at least a first name to log \
+the request: "I just need a name so we can keep track of your request." \
+Do NOT move on to the address until you have at least a first name.
+  Once you have a name, call save_customer_info with it (silently)."""
+    else:
+        name_step = """\
+Ask for the customer's name in two parts. Do NOT ask for both at once.
+  i. Ask: "Can I get your first name?" Once they provide it, move on.
+  ii. Ask: "And your last name?" Once they provide it, move on.
+  If the customer declines to give a last name, accept just the first name.
+  If they refuse to give any name at all, explain that you need at least a first name to log \
+the request: "I just need a name so we can keep track of your request." \
+Do NOT move on to the address until you have at least a first name.
+  Once you have a name, call save_customer_info with it (silently)."""
+
     if name_known:
-        intake_flow = """\
-1. Ask for their service address and city (e.g. "Can I get the service address including city?"). \
-Once they provide it, read it back and confirm: "Just to confirm, I have [address], [city] — is that correct?" \
-If they correct it, repeat the corrected address back before moving on.
+        intake_flow = f"""\
+1. Collect the service address:
+{address_flow}
 2. Ask: "What type of service do you need?"
 3. Once you have the service type, ask: "Are you looking for someone to come out tonight, or would next business day work for you?"
 Do not skip any step. Do not ask for their name — you already have it."""
     else:
-        intake_flow = """\
-1. Ask for the customer's name. Once they give it, call save_customer_info immediately (silently).
-2. Ask for their service address and city (e.g. "Can I get the service address including city?"). \
-Once they provide it, read it back and confirm: "Just to confirm, I have [address], [city] — is that correct?" \
-If they correct it, repeat the corrected address back before moving on.
+        intake_flow = f"""\
+1. {name_step}
+2. Collect the service address:
+{address_flow}
 3. Ask: "What type of service do you need?"
 4. Once you have the service type, ask: "Are you looking for someone to come out tonight, or would next business day work for you?"
 Do not skip any step. Do not ask about the purpose of the call until you have both their name and service address."""
