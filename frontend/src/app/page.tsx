@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { motion, useInView, useScroll, useTransform } from "framer-motion";
 import { ArrowRight, CheckCircle, Phone, Zap } from "lucide-react";
@@ -87,17 +87,9 @@ function Nav() {
 
         <div className="flex items-center gap-3">
           {loggedIn ? (
-            <>
-              <Link href="/dashboard" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors hidden sm:block">
-                Dashboard
-              </Link>
-              <button
-                onClick={() => signOut({ callbackUrl: "/" })}
-                className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
-              >
-                Log out
-              </button>
-            </>
+            <Link href="/dashboard" className="text-[13px] font-medium bg-slate-800 text-white px-4 py-2 rounded-full hover:bg-slate-700 transition-colors">
+              Dashboard
+            </Link>
           ) : (
             <>
               <Link href="/login" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors hidden sm:block">
