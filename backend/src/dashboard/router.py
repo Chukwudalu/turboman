@@ -397,6 +397,8 @@ class TenantSettingsUpdate(BaseModel):
     confirm_name_spelling: bool | None = None
     confirm_address_spelling: bool | None = None
     customer_fallback_message: str | None = None
+    customer_tech_accepted_message: str | None = None
+    customer_manager_accepted_message: str | None = None
     cartesia_voice_id: str | None = None
     kb_about: str | None = None
     kb_services: str | None = None
@@ -414,7 +416,8 @@ async def get_settings(tenant_id: str = Depends(_get_tenant_id)):
         .select(
             "id, name, phone, business_hours_start, business_hours_end, business_timezone, "
             "oncall_voice_timeout_minutes, oncall_sms_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes, "
-            "escalation_phone, escalation_phone_after_hours, confirm_name_spelling, confirm_address_spelling, customer_fallback_message, cartesia_voice_id, "
+            "escalation_phone, escalation_phone_after_hours, confirm_name_spelling, confirm_address_spelling, "
+            "customer_fallback_message, customer_tech_accepted_message, customer_manager_accepted_message, cartesia_voice_id, "
             "kb_about, kb_services, kb_hours_description, kb_rate_regular, kb_rate_after_hours, "
             "kb_rate_maintenance, kb_extra, plan, trial_ends_at"
         )

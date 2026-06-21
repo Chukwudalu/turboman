@@ -94,6 +94,8 @@ export interface TenantSettings {
   confirm_name_spelling: boolean | null;
   confirm_address_spelling: boolean | null;
   customer_fallback_message: string | null;
+  customer_tech_accepted_message: string | null;
+  customer_manager_accepted_message: string | null;
   cartesia_voice_id: string | null;
   kb_about: string | null;
   kb_services: string | null;

@@ -1,12 +1,14 @@
 """
 On-call escalation: technicians first, then management escalation contacts.
 
-Chain per role group:
+Chain:
   1. Dispatch to first tech (role='tech') using configured notification method.
   2. If tech is unavailable (no-answer, says no), move to the next tech.
   3. Once all techs are exhausted, escalate to managers (role='manager').
-  4. Same escalation through all managers.
-  5. If all managers exhausted → customer fallback SMS.
+     Managers organize attendance — they don't attend the job themselves.
+     If a manager accepts, the customer gets a "still working on it" SMS
+     and the manager coordinates manually from there.
+  4. If all managers decline/unreachable → customer fallback SMS.
 
 Notification methods:
   'voice' — outbound call only
@@ -172,8 +174,8 @@ async def _dispatch_to_contact(
             sms_body = (
                 f"ESCALATION — All on-call technicians were unreachable. "
                 f"{label}: {service_type}{address_str}.{customer_str} "
-                f"Please contact the customer prior to attending to confirm the visit and service. "
-                f"Reply YES to acknowledge. (Turboman)"
+                f"Can you organize a technician to attend? "
+                f"Reply YES to accept coordination. (Turboman)"
             )
         else:
             sms_body = (

@@ -312,11 +312,12 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
 
     if tech.get("role") == "manager":
         greeting = (
-            f"Hello {name}. This is an urgent escalation call from {company}. "
-            f"We have been unable to reach any on-call technicians for an after-hours {call_type} request. "
-            f"A customer requires {service}{location}. "
-            f"If you accept, please notify the technician to contact the customer prior to attending to confirm the visit and service. "
-            f"Can you coordinate a response tonight? Please say yes or no."
+            f"Hello {name}. This is an escalation call from {company}. "
+            f"We were unable to reach any on-call technicians for a {call_type} request. "
+            f"A customer needs {service}{location}. "
+            f"Can you organize a technician to attend? "
+            f"If you accept, we will notify the customer that someone is working on it. "
+            f"Please say yes or no."
         )
     else:
         greeting = (
@@ -386,6 +387,16 @@ async def oncall_callback(tech_id: str = Query(...)):
     base = settings.base_url.rstrip("/")
     action = f"{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"
 
+    if tech.get("role") == "manager":
+        return _xml(
+            f'<Gather input="speech" action="{action}" timeout="8" speechTimeout="3" language="en-US">'
+            f"<Say>Hi {name}, thanks for calling back. "
+            f"We still have an open {call_type} request for {service}{location} and all technicians were unreachable. "
+            f"Can you organize a technician to attend? Please say yes or no.</Say>"
+            f"</Gather>"
+            f'<Redirect method="POST">{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}&amp;no_input=1</Redirect>'
+        )
+
     return _xml(
         f'<Gather input="speech" action="{action}" timeout="8" speechTimeout="3" language="en-US">'
         f"<Say>Hi {name}, thanks for calling back. "
@@ -418,7 +429,25 @@ async def oncall_call_response(
 
     if not available:
         asyncio.create_task(_guarded(try_next_tech(dispatch_id, tech_id, declined=True)))
+        if tech.get("role") == "manager":
+            return _xml("<Say>Understood. We will try the next available contact. Thank you.</Say><Hangup/>")
         return _xml("<Say>Understood. We will contact the next available technician. Thank you.</Say><Hangup/>")
+
+    if tech.get("role") == "manager":
+        await acknowledge_dispatch(dispatch_id, tech_id=tech_id)
+        _DEFAULT_MANAGER_MSG = (
+            "We are still working on reaching a technician and will contact you shortly."
+        )
+        custom_msg = ctx.get("customer_manager_accepted_message")
+        msg = custom_msg.strip() if custom_msg and custom_msg.strip() else _DEFAULT_MANAGER_MSG
+        if ctx and ctx["customer_phone"]:
+            await send_sms(ctx["customer_phone"], f"{msg} (Turboman)", ctx.get("tenant_phone"))
+            logger.info("Customer notified of manager coordination", dispatch_id=dispatch_id)
+        return _xml(
+            "<Say>Thank you. The customer has been notified that we are working on it. "
+            "Please coordinate with your team and reach out to the customer once a technician is confirmed. "
+            "Have a good night.</Say><Hangup/>"
+        )
 
     action = f"{base}/oncall-call-eta?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"
     return _xml(
@@ -450,9 +479,17 @@ async def oncall_call_eta(
     if ctx and ctx["customer_phone"]:
         service = ctx["service_type"]
         eta_str = f" They estimate arrival in {eta}." if eta else ""
+        _DEFAULT_TECH_MSG = f"Good news! A technician is on their way for your {service} request.{eta_str} They will contact you shortly."
+        custom_msg = ctx.get("customer_tech_accepted_message")
+        if custom_msg and custom_msg.strip():
+            msg = custom_msg.strip()
+            if eta:
+                msg += f" Estimated arrival: {eta}."
+        else:
+            msg = _DEFAULT_TECH_MSG
         await send_sms(
             ctx["customer_phone"],
-            f"Good news! A technician is on their way for your {service} emergency.{eta_str} They will contact you shortly. (Turboman)",
+            f"{msg} (Turboman)",
             ctx.get("tenant_phone"),
         )
         logger.info("Customer notified of oncall acknowledgment", dispatch_id=dispatch_id)
@@ -510,14 +547,31 @@ async def sms_incoming(request: Request, From: str = Form("")):
         acknowledged = await acknowledge_dispatch_for_tenant(tenant_id)
         if acknowledged:
             logger.info("Oncall dispatch acknowledged via SMS", from_phone=From)
-            # Notify the customer that a tech is on the way
+            # Notify the customer
             if dispatch_result.data:
                 ctx = await get_dispatch_context(dispatch_result.data[0]["id"])
+                tech_row = await (
+                    db.table("oncall_technicians")
+                    .select("role")
+                    .eq("phone", From)
+                    .eq("active", True)
+                    .limit(1)
+                    .execute()
+                )
+                is_manager = tech_row.data[0]["role"] == "manager" if tech_row.data else False
                 if ctx and ctx.get("customer_phone"):
-                    service = ctx["service_type"]
+                    if is_manager:
+                        _DEFAULT_MGR = "We are still working on reaching a technician and will contact you shortly."
+                        custom = ctx.get("customer_manager_accepted_message")
+                        msg = custom.strip() if custom and custom.strip() else _DEFAULT_MGR
+                    else:
+                        service = ctx["service_type"]
+                        _DEFAULT_TECH = f"Good news! A technician has accepted your {service} request and will contact you shortly."
+                        custom = ctx.get("customer_tech_accepted_message")
+                        msg = custom.strip() if custom and custom.strip() else _DEFAULT_TECH
                     await send_sms(
                         ctx["customer_phone"],
-                        f"Good news! A technician has accepted your {service} request and will contact you shortly. (Turboman)",
+                        f"{msg} (Turboman)",
                         ctx.get("tenant_phone"),
                     )
             # Cancel the active voice call if one is ringing

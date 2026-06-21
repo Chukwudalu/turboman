@@ -343,10 +343,12 @@ export default function SettingsPage() {
   const [savingConfirm, setSavingConfirm] = useState(false);
   const [savedConfirm, setSavedConfirm] = useState(false);
 
-  // Customer fallback message
+  // Customer messages
   const [fallbackMessage, setFallbackMessage] = useState("");
-  const [savingFallback, setSavingFallback] = useState(false);
-  const [savedFallback, setSavedFallback] = useState(false);
+  const [techAcceptedMessage, setTechAcceptedMessage] = useState("");
+  const [managerAcceptedMessage, setManagerAcceptedMessage] = useState("");
+  const [savingMessages, setSavingMessages] = useState(false);
+  const [savedMessages, setSavedMessages] = useState(false);
 
   // Forwarding number (read-only, provisioned by Turboman)
   const [forwardingPhone, setForwardingPhone] = useState<string | null>(null);
@@ -387,6 +389,8 @@ export default function SettingsPage() {
       setConfirmName(s.confirm_name_spelling ?? true);
       setConfirmAddress(s.confirm_address_spelling ?? true);
       setFallbackMessage(s.customer_fallback_message ?? "");
+      setTechAcceptedMessage(s.customer_tech_accepted_message ?? "");
+      setManagerAcceptedMessage(s.customer_manager_accepted_message ?? "");
       setForwardingPhone(s.phone ?? null);
       setVoiceId(s.cartesia_voice_id ?? "");
       setLoading(false);
@@ -720,40 +724,67 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Customer fallback message */}
+      {/* Customer SMS messages */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
           <MessageSquare size={15} className="text-slate-400" />
-          <h2 className="text-sm font-semibold text-slate-700">Customer fallback message</h2>
+          <h2 className="text-sm font-semibold text-slate-700">Customer SMS messages</h2>
         </div>
-        <div className="px-6 py-5 space-y-3">
+        <div className="px-6 py-5 space-y-5">
           <p className="text-sm text-slate-500">
-            If no on-call technician or manager accepts the job, this message is sent to the customer via SMS.
-            Leave blank to use the default.
+            Customize the SMS messages sent to customers at each stage of dispatch. Leave blank to use the defaults shown.
           </p>
-          <textarea
-            rows={3}
-            placeholder="We were unable to reach our on-call team tonight. Your request has been logged and our team will contact you first thing next business day."
-            value={fallbackMessage}
-            onChange={(e) => setFallbackMessage(e.target.value)}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
-          />
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">When a technician accepts</label>
+            <textarea
+              rows={2}
+              placeholder="Good news! A technician has accepted your request and will contact you shortly."
+              value={techAcceptedMessage}
+              onChange={(e) => setTechAcceptedMessage(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">When a manager accepts coordination</label>
+            <textarea
+              rows={2}
+              placeholder="We are still working on reaching a technician and will contact you shortly."
+              value={managerAcceptedMessage}
+              onChange={(e) => setManagerAcceptedMessage(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">When no one is available (fallback)</label>
+            <textarea
+              rows={2}
+              placeholder="We were unable to reach our on-call team tonight. Your request has been logged and our team will contact you first thing next business day."
+              value={fallbackMessage}
+              onChange={(e) => setFallbackMessage(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+            />
+          </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
           <button onClick={async () => {
-            setSavingFallback(true); setSavedFallback(false);
+            setSavingMessages(true); setSavedMessages(false);
             try {
               await api.updateTenantSettings(token, tenantId, {
+                customer_tech_accepted_message: techAcceptedMessage || null,
+                customer_manager_accepted_message: managerAcceptedMessage || null,
                 customer_fallback_message: fallbackMessage || null,
               });
-              setSavedFallback(true);
-              setTimeout(() => setSavedFallback(false), 3000);
-            } finally { setSavingFallback(false); }
-          }} disabled={savingFallback || loading}
+              setSavedMessages(true);
+              setTimeout(() => setSavedMessages(false), 3000);
+            } finally { setSavingMessages(false); }
+          }} disabled={savingMessages || loading}
             className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60">
-            <Save size={14} />{savingFallback ? "Saving…" : "Save message"}
+            <Save size={14} />{savingMessages ? "Saving…" : "Save messages"}
           </button>
-          {savedFallback && <p className="text-sm text-green-600 font-medium">Saved!</p>}
+          {savedMessages && <p className="text-sm text-green-600 font-medium">Saved!</p>}
         </div>
       </div>
 
@@ -822,7 +853,7 @@ export default function SettingsPage() {
       {/* On-call supervisors */}
       <ContactSection
         title="On-call supervisors"
-        description="Contacted only after all on-call technicians are unreachable. Typically managers or supervisors who can coordinate a response."
+        description="Contacted only after all technicians are unreachable. Managers organize a technician to attend — they do not go to the job themselves."
         icon={ShieldAlert}
         iconClass="text-amber-500"
         contacts={managers}
