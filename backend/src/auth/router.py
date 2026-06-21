@@ -133,7 +133,7 @@ async def register(request: Request, body: RegisterRequest):
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    existing = await db.table("users").select("id").eq("email", body.email).execute()
+    existing = await db.table("users").select("id").eq("email", body.email).eq("active", True).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
