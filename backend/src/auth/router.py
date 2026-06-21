@@ -119,6 +119,8 @@ def _require_role(allowed: list[str]):
 class RegisterRequest(BaseModel):
     company_name: str
     trade_type: str
+    company_city: str
+    company_province: str
     name: str
     email: str
     password: str
@@ -139,6 +141,8 @@ async def register(request: Request, body: RegisterRequest):
     tenant_result = await db.table("tenants").insert({
         "name": body.company_name,
         "trade_type": body.trade_type,
+        "company_city": body.company_city,
+        "company_province": body.company_province,
         "plan": "trial",
         "trial_ends_at": trial_ends_at,
     }).execute()
@@ -149,7 +153,9 @@ async def register(request: Request, body: RegisterRequest):
     if settings.twilio_auto_provision:
         try:
             loop = asyncio.get_running_loop()
-            phone, phone_sid = await loop.run_in_executor(None, provision_phone_number)
+            phone, phone_sid = await loop.run_in_executor(
+                None, lambda: provision_phone_number(body.company_city, body.company_province)
+            )
             await db.table("tenants").update({"phone": phone, "twilio_phone_sid": phone_sid}).eq("id", tenant["id"]).execute()
             tenant["phone"] = phone
         except Exception as exc:

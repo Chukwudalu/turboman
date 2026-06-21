@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
 
     # Call behaviour
-    silence_reprompt_ms: int = 8000    # silence after AI finishes before first reprompt
+    silence_reprompt_ms: int = 12000   # silence after AI finishes before first reprompt
     max_reprompts: int = 2              # after 2 unanswered reprompts, end the call
     transcript_debounce_ms: int = 200   # wait after last is_final before processing
 

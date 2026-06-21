@@ -125,7 +125,10 @@ async def handle_call_websocket(websocket: WebSocket, redis_client):
         state._debounce_task = asyncio.create_task(_fire())
 
     def on_partial(text: str):
-        """Barge-in: customer started speaking while AI is playing."""
+        """Barge-in + silence timer reset: customer started speaking."""
+        if text.strip():
+            _cancel_silence_timer(state)
+
         words = text.strip().split()
         if state.is_speaking and len(words) >= _BARGE_IN_WORD_THRESHOLD:
             _cancel_turn(state)

@@ -88,7 +88,7 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
         .select(
             "status, tenant_id, "
             "service_requests(service_type, address, is_emergency, "
-            "  tenants(name, phone, oncall_voice_timeout_minutes, oncall_sms_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes), "
+            "  tenants(name, phone, oncall_voice_timeout_minutes, oncall_sms_timeout_minutes, oncall_notification_method, oncall_fallback_delay_minutes, customer_fallback_message), "
             "  customers(phone, name))"
         )
         .eq("id", dispatch_id)
@@ -117,6 +117,7 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
         "notification_method": tenant.get("oncall_notification_method") or "both",
         "is_emergency": bool(sr.get("is_emergency", True)),
         "fallback_delay_minutes": tenant.get("oncall_fallback_delay_minutes") if tenant.get("oncall_fallback_delay_minutes") is not None else 5,
+        "customer_fallback_message": tenant.get("customer_fallback_message"),
     }
 
 

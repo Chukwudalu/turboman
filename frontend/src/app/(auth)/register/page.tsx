@@ -42,11 +42,29 @@ const TRADE_TYPES = [
   { value: "other",        label: "Other trades" },
 ];
 
+const PROVINCES = [
+  { value: "BC", label: "British Columbia" },
+  { value: "AB", label: "Alberta" },
+  { value: "ON", label: "Ontario" },
+  { value: "QC", label: "Quebec" },
+  { value: "MB", label: "Manitoba" },
+  { value: "SK", label: "Saskatchewan" },
+  { value: "NS", label: "Nova Scotia" },
+  { value: "NB", label: "New Brunswick" },
+  { value: "NL", label: "Newfoundland and Labrador" },
+  { value: "PE", label: "Prince Edward Island" },
+  { value: "NT", label: "Northwest Territories" },
+  { value: "YT", label: "Yukon" },
+  { value: "NU", label: "Nunavut" },
+];
+
 export default function RegisterPage() {
-  const [companyName, setCompanyName] = useState("");
-  const [tradeType, setTradeType]     = useState("");
-  const [name, setName]               = useState("");
-  const [email, setEmail]             = useState("");
+  const [companyName, setCompanyName]     = useState("");
+  const [tradeType, setTradeType]       = useState("");
+  const [companyCity, setCompanyCity]     = useState("");
+  const [companyProvince, setCompanyProvince] = useState("");
+  const [name, setName]                 = useState("");
+  const [email, setEmail]               = useState("");
   const [password, setPassword]         = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]           = useState(false);
@@ -65,6 +83,8 @@ export default function RegisterPage() {
         body: JSON.stringify({
           company_name: companyName,
           trade_type: tradeType,
+          company_city: companyCity,
+          company_province: companyProvince,
           name,
           email,
           password,
@@ -147,6 +167,34 @@ export default function RegisterPage() {
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">City *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Vancouver"
+                  value={companyCity}
+                  onChange={(e) => setCompanyCity(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Province *</label>
+                <select
+                  required
+                  value={companyProvince}
+                  onChange={(e) => setCompanyProvince(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent bg-white text-slate-700"
+                >
+                  <option value="" disabled>Select…</option>
+                  {PROVINCES.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>

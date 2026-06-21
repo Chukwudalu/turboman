@@ -37,6 +37,7 @@ from src.db import db
 from src.db.oncall import (
     acknowledge_dispatch,
     acknowledge_dispatch_for_tenant,
+    cancel_dispatch_timeouts,
     get_dispatch,
     get_dispatch_context,
     get_tech_by_id,
@@ -297,6 +298,8 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
     if not ctx or not tech or ctx["dispatch_status"] != "dispatching" or tech.get("tenant_id") != ctx["tenant_id"]:
         return _xml("<Say>This emergency has already been handled. Thank you.</Say><Hangup/>")
 
+    await cancel_dispatch_timeouts(dispatch_id)
+
     base = settings.base_url.rstrip("/")
     name = tech["name"].split()[0]  # first name only
     company = ctx["company_name"]
@@ -363,6 +366,8 @@ async def oncall_callback(tech_id: str = Query(...)):
 
     dispatch = dispatch_result.data[0]
     dispatch_id = dispatch["id"]
+
+    await cancel_dispatch_timeouts(dispatch_id)
 
     if dispatch["status"] == "acknowledged":
         return _xml(
@@ -505,6 +510,16 @@ async def sms_incoming(request: Request, From: str = Form("")):
         acknowledged = await acknowledge_dispatch_for_tenant(tenant_id)
         if acknowledged:
             logger.info("Oncall dispatch acknowledged via SMS", from_phone=From)
+            # Notify the customer that a tech is on the way
+            if dispatch_result.data:
+                ctx = await get_dispatch_context(dispatch_result.data[0]["id"])
+                if ctx and ctx.get("customer_phone"):
+                    service = ctx["service_type"]
+                    await send_sms(
+                        ctx["customer_phone"],
+                        f"Good news! A technician has accepted your {service} request and will contact you shortly. (Turboman)",
+                        ctx.get("tenant_phone"),
+                    )
             # Cancel the active voice call if one is ringing
             if dispatch_result.data and dispatch_result.data[0].get("active_call_sid"):
                 call_sid = dispatch_result.data[0]["active_call_sid"]

@@ -93,6 +93,7 @@ export interface TenantSettings {
   escalation_phone_after_hours: string | null;
   confirm_name_spelling: boolean | null;
   confirm_address_spelling: boolean | null;
+  customer_fallback_message: string | null;
   cartesia_voice_id: string | null;
   kb_about: string | null;
   kb_services: string | null;

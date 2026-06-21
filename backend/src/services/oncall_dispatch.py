@@ -137,9 +137,9 @@ async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: boo
             logger.info("Escalating to management after techs exhausted", dispatch_id=dispatch_id)
             await _dispatch_next(managers[0])
         else:
-            await _exhaust_dispatch(dispatch_id, customer_phone=ctx["customer_phone"], any_declined=declined, delay_minutes=fallback_delay)
+            await _exhaust_dispatch(dispatch_id, customer_phone=ctx["customer_phone"], any_declined=declined, delay_minutes=fallback_delay, fallback_message=ctx.get("customer_fallback_message"))
     else:
-        await _exhaust_dispatch(dispatch_id, customer_phone=ctx["customer_phone"], any_declined=declined, delay_minutes=fallback_delay)
+        await _exhaust_dispatch(dispatch_id, customer_phone=ctx["customer_phone"], any_declined=declined, delay_minutes=fallback_delay, fallback_message=ctx.get("customer_fallback_message"))
 
 
 async def _dispatch_to_contact(
@@ -244,7 +244,20 @@ async def _dispatch_to_contact(
     }).execute()
 
 
-async def _exhaust_dispatch(dispatch_id: str, *, customer_phone: str | None, any_declined: bool = False, delay_minutes: int = 5) -> None:
+_DEFAULT_FALLBACK_MESSAGE = (
+    "We were unable to reach our on-call team tonight. "
+    "Your request has been logged and our team will contact you first thing next business day."
+)
+
+
+async def _exhaust_dispatch(
+    dispatch_id: str,
+    *,
+    customer_phone: str | None,
+    any_declined: bool = False,
+    delay_minutes: int = 5,
+    fallback_message: str | None = None,
+) -> None:
     await db.table("oncall_dispatches").update({"next_tech_processing": False}).eq("id", dispatch_id).execute()
     if any_declined:
         await reject_dispatch(dispatch_id)
@@ -266,13 +279,12 @@ async def _exhaust_dispatch(dispatch_id: str, *, customer_phone: str | None, any
     if not customer_phone:
         return
 
+    message = fallback_message.strip() if fallback_message and fallback_message.strip() else _DEFAULT_FALLBACK_MESSAGE
+
     send_at = datetime.now(timezone.utc) + timedelta(minutes=delay_minutes)
     await db.table("pending_notifications").insert({
         "phone": customer_phone,
-        "message": (
-            "We were unable to reach our on-call team tonight. "
-            "Your request has been logged and our team will contact you first thing next business day."
-        ),
+        "message": message,
         "send_at": send_at.isoformat(),
         "dispatch_id": dispatch_id,
     }).execute()

@@ -50,30 +50,37 @@ def build_system_prompt(tenant: dict, customer: dict | None, kb_context: list[st
     if confirm_address:
         address_flow = """\
 Ask for the address in three separate steps. Do NOT combine them into one question.
-a. Ask: "What's your street address?" \
-Once they provide it, say: "Let me spell that back to make sure I have it right" then spell it out clearly. \
-Ask: "Is that correct?" If they correct it, spell the corrected version back before moving on.
-b. Ask: "And what city is that in?" \
-Once they provide it, spell it back to confirm. Ask: "Is that correct?" \
-If they correct it, spell the corrected version back before moving on.
+a. Ask: "What's your street address, and is there a unit number? Could you spell that out for me?" \
+Once they spell it, repeat it back LETTER BY LETTER and DIGIT BY DIGIT to confirm. \
+For example if they spell "123 Main Street, Unit 4", say: \
+"Let me make sure I have that right: 1, 2, 3, M, A, I, N, Street, Unit 4. Is that correct?" \
+If they correct you, spell the corrected version back letter by letter before moving on.
+b. Ask: "And what city is that in? Could you spell it out for me?" \
+Once they spell it, repeat the city name back LETTER BY LETTER. \
+For example if they spell "Vancouver", say: "That's V, A, N, C, O, U, V, E, R. Is that correct?" \
+If they correct you, spell the corrected version back letter by letter before moving on.
 c. Ask: "And your postal code?" \
-Once they provide it, spell it back to confirm. Ask: "Is that correct?" \
-If they correct it, spell the corrected version back before moving on."""
+Once they provide it, read it back CHARACTER BY CHARACTER. \
+For example if they say "V6B 3K9", say: "That's V, 6, B, 3, K, 9. Is that correct?" \
+If they correct you, spell the corrected version back before moving on."""
     else:
         address_flow = """\
 Ask for the address in three separate steps. Do NOT combine them into one question.
-a. Ask: "What's your street address?" Once they provide it, move on.
+a. Ask: "What's your street address, and is there a unit number?" Once they provide it, move on.
 b. Ask: "And what city is that in?" Once they provide it, move on.
 c. Ask: "And your postal code?" Once they provide it, move on."""
 
     if confirm_name:
         name_step = """\
 Ask for the customer's name in two parts. Do NOT ask for both at once.
-  i. Ask: "Can I get your first name?" Once they provide it, spell it back to confirm: \
-"Just to make sure I have it right, is that [spell out first name]?" \
-If they correct it, spell the corrected version back before moving on.
-  ii. Ask: "And your last name?" Once they provide it, spell it back to confirm: \
-"And that's [spell out last name]?" If they correct it, spell the corrected version back.
+  i. Ask: "Can I get your name? Could you spell that out for me?" \
+Once they spell it, repeat it back LETTER BY LETTER to confirm. \
+For example if they spell "Jeremiah", say: "Just to make sure I have it right, that's J, E, R, E, M, I, A, H?" \
+If they correct you, spell the corrected version back letter by letter before moving on.
+  ii. Ask: "And your last name? Could you spell that as well?" \
+Once they spell it, repeat it back LETTER BY LETTER. \
+For example if they spell "Smith", say: "And that's S, M, I, T, H?" \
+If they correct you, spell the corrected version back letter by letter.
   If the customer declines to give a last name, accept just the first name.
   If they refuse to give any name at all, explain that you need at least a first name to log \
 the request: "I just need a name so we can keep track of your request." \

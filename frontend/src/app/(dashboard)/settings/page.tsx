@@ -343,6 +343,11 @@ export default function SettingsPage() {
   const [savingConfirm, setSavingConfirm] = useState(false);
   const [savedConfirm, setSavedConfirm] = useState(false);
 
+  // Customer fallback message
+  const [fallbackMessage, setFallbackMessage] = useState("");
+  const [savingFallback, setSavingFallback] = useState(false);
+  const [savedFallback, setSavedFallback] = useState(false);
+
   // Forwarding number (read-only, provisioned by Turboman)
   const [forwardingPhone, setForwardingPhone] = useState<string | null>(null);
 
@@ -381,6 +386,7 @@ export default function SettingsPage() {
       setEscalationPhoneAfterHours(s.escalation_phone_after_hours ?? "");
       setConfirmName(s.confirm_name_spelling ?? true);
       setConfirmAddress(s.confirm_address_spelling ?? true);
+      setFallbackMessage(s.customer_fallback_message ?? "");
       setForwardingPhone(s.phone ?? null);
       setVoiceId(s.cartesia_voice_id ?? "");
       setLoading(false);
@@ -711,6 +717,43 @@ export default function SettingsPage() {
             <Save size={14} />{savingNotif ? "Saving…" : "Save changes"}
           </button>
           {savedNotif && <p className="text-sm text-green-600 font-medium">Saved!</p>}
+        </div>
+      </div>
+
+      {/* Customer fallback message */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+          <MessageSquare size={15} className="text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-700">Customer fallback message</h2>
+        </div>
+        <div className="px-6 py-5 space-y-3">
+          <p className="text-sm text-slate-500">
+            If no on-call technician or manager accepts the job, this message is sent to the customer via SMS.
+            Leave blank to use the default.
+          </p>
+          <textarea
+            rows={3}
+            placeholder="We were unable to reach our on-call team tonight. Your request has been logged and our team will contact you first thing next business day."
+            value={fallbackMessage}
+            onChange={(e) => setFallbackMessage(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+          />
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
+          <button onClick={async () => {
+            setSavingFallback(true); setSavedFallback(false);
+            try {
+              await api.updateTenantSettings(token, tenantId, {
+                customer_fallback_message: fallbackMessage || null,
+              });
+              setSavedFallback(true);
+              setTimeout(() => setSavedFallback(false), 3000);
+            } finally { setSavingFallback(false); }
+          }} disabled={savingFallback || loading}
+            className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60">
+            <Save size={14} />{savingFallback ? "Saving…" : "Save message"}
+          </button>
+          {savedFallback && <p className="text-sm text-green-600 font-medium">Saved!</p>}
         </div>
       </div>
 
