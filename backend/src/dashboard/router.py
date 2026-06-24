@@ -680,7 +680,8 @@ async def close_account(
         "twilio_phone_sid": None,
     }).eq("id", tenant_id).execute()
 
-    await db.table("users").update({"active": False}).eq("tenant_id", tenant_id).execute()
+    await db.table("refresh_tokens").delete().eq("tenant_id", tenant_id).execute()
+    await db.table("users").delete().eq("tenant_id", tenant_id).execute()
 
     from src.utils.logger import logger
     logger.info("Account closed by owner", tenant_id=tenant_id)

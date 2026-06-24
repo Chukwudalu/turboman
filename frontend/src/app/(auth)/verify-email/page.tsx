@@ -4,8 +4,6 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Zap, CheckCircle, XCircle, Loader } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
 function VerifyEmailContent() {
   const params = useSearchParams();
   const token = params.get("token");
@@ -23,7 +21,7 @@ function VerifyEmailContent() {
       return;
     }
 
-    fetch(`${API_URL}/auth/verify-email?token=${token}`)
+    fetch(`/api/backend/auth/verify-email?token=${token}`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (res.ok) {

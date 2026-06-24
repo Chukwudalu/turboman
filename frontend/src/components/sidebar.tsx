@@ -16,8 +16,6 @@ const NAV = [
   { href: "/settings",        label: "Settings",         icon: Settings2 },
 ];
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
 export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const path = usePathname();
   const { data: session } = useSession();
@@ -25,7 +23,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   async function handleSignOut() {
     const refreshToken = (session as any)?.refreshToken;
     if (refreshToken) {
-      await fetch(`${API_URL}/auth/logout`, {
+      await fetch("/api/backend/auth/logout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),

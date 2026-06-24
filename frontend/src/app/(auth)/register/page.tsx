@@ -30,8 +30,6 @@ function PasswordChecklist({ password }: { password: string }) {
   );
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
 const TRADE_TYPES = [
   { value: "hvac",         label: "HVAC" },
   { value: "plumbing",     label: "Plumbing" },
@@ -77,7 +75,7 @@ export default function RegisterPage() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_URL}/auth/register`, {
+      const res = await fetch("/api/backend/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

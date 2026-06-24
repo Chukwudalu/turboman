@@ -133,7 +133,7 @@ async def register(request: Request, body: RegisterRequest):
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    existing = await db.table("users").select("id").eq("email", body.email).eq("active", True).execute()
+    existing = await db.table("users").select("id").eq("email", body.email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
@@ -163,17 +163,21 @@ async def register(request: Request, body: RegisterRequest):
 
     verification_token = secrets.token_urlsafe(32)
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
-    user_result = await db.table("users").insert({
-        "email": body.email,
-        "name": body.name,
-        "password_hash": hashed,
-        "tenant_id": tenant["id"],
-        "role": "owner",
-        "active": True,
-        "email_verified": False,
-        "verification_token": verification_token,
-    }).execute()
-    if not user_result.data:
+    try:
+        user_result = await db.table("users").insert({
+            "email": body.email,
+            "name": body.name,
+            "password_hash": hashed,
+            "tenant_id": tenant["id"],
+            "role": "owner",
+            "active": True,
+            "email_verified": False,
+            "verification_token": verification_token,
+        }).execute()
+        if not user_result.data:
+            raise Exception("Empty result")
+    except Exception:
+        await db.table("tenants").delete().eq("id", tenant["id"]).execute()
         raise HTTPException(status_code=500, detail="Failed to create user")
 
     from src.services.email import send_verification_email
@@ -276,9 +280,11 @@ class ResetPasswordRequest(BaseModel):
 @router.post("/forgot-password")
 @limiter.limit("5/minute")
 async def forgot_password(request: Request, body: ForgotPasswordRequest):
-    user = await db.table("users").select("id, name, email").eq("email", body.email).execute()
-    if not user.data:
-        return {"message": "If that email is registered, a reset link has been sent."}
+    _msg = "If that email is registered, a reset link has been sent."
+    user = await db.table("users").select("id, name, email, active").eq("email", body.email.lower()).execute()
+    if not user.data or not user.data[0].get("active"):
+        secrets.token_urlsafe(32)
+        return {"message": _msg}
 
     u = user.data[0]
     token = secrets.token_urlsafe(32)
@@ -291,7 +297,7 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest):
     from src.services.email import send_password_reset_email
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, lambda: send_password_reset_email(u["email"], u["name"], token))
-    return {"message": "If that email is registered, a reset link has been sent."}
+    return {"message": _msg}
 
 
 @router.post("/reset-password")
@@ -301,9 +307,9 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    result = await db.table("users").select("id, password_reset_expires_at").eq("password_reset_token", body.token).execute()
+    result = await db.table("users").select("id, active, password_reset_expires_at").eq("password_reset_token", body.token).execute()
     user = result.data[0] if result.data else None
-    if not user:
+    if not user or not user.get("active"):
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
 
     expires = datetime.fromisoformat(user["password_reset_expires_at"].replace("Z", "+00:00"))
@@ -363,10 +369,15 @@ class InviteRequest(BaseModel):
     role: str = "member"  # member | admin
 
 
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
 @router.post("/invite", status_code=201)
 async def invite_user(body: InviteRequest, payload: dict = Depends(_require_role(["owner", "admin"]))):
     if body.role not in ("member", "admin"):
         raise HTTPException(status_code=422, detail="Role must be 'member' or 'admin'")
+    if not _EMAIL_RE.match(body.email):
+        raise HTTPException(status_code=422, detail="Invalid email address")
 
     tenant_id = payload["tenant_id"]
 

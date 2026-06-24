@@ -26,7 +26,7 @@ def send_password_reset_email(to_email: str, name: str, token: str) -> bool:
                 This link expires in 1 hour.
               </p>
               <a href="{reset_url}"
-                 style="display:inline-block;background:#2563eb;color:#fff;font-weight:600;
+                 style="display:inline-block;background:#1e293b;color:#fff;font-weight:600;
                         font-size:14px;padding:12px 24px;border-radius:8px;text-decoration:none">
                 Reset password
               </a>
@@ -62,7 +62,7 @@ def send_invite_email(to_email: str, name: str, temp_password: str) -> bool:
               <p style="margin:0 0 8px;color:#475569;font-size:15px"><strong>Email:</strong> {to_email}</p>
               <p style="margin:0 0 24px;color:#475569;font-size:15px"><strong>Temporary password:</strong> {temp_password}</p>
               <a href="{login_url}"
-                 style="display:inline-block;background:#2563eb;color:#fff;font-weight:600;
+                 style="display:inline-block;background:#1e293b;color:#fff;font-weight:600;
                         font-size:14px;padding:12px 24px;border-radius:8px;text-decoration:none">
                 Log in to Turboman
               </a>
@@ -98,7 +98,7 @@ def send_verification_email(to_email: str, name: str, token: str) -> bool:
                 This link expires in 24 hours.
               </p>
               <a href="{verify_url}"
-                 style="display:inline-block;background:#2563eb;color:#fff;font-weight:600;
+                 style="display:inline-block;background:#1e293b;color:#fff;font-weight:600;
                         font-size:14px;padding:12px 24px;border-radius:8px;text-decoration:none">
                 Verify my email
               </a>
