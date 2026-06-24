@@ -37,7 +37,8 @@ def build_system_prompt(tenant: dict, customer: dict | None, kb_context: list[st
         else ""
     )
 
-    name_known = bool(customer and customer.get("name"))
+    remember_caller = tenant.get("remember_caller_info", True) is not False
+    name_known = remember_caller and bool(customer and customer.get("name"))
     confirm_name = tenant.get("confirm_name_spelling", True) is not False
     confirm_address = tenant.get("confirm_address_spelling", True) is not False
     logger.info(
@@ -97,12 +98,25 @@ the request: "I just need a name so we can keep track of your request." \
 Do NOT move on to the address until you have at least a first name.
   Once you have a name, call save_customer_info with it (silently)."""
 
-    if name_known:
+    last_address = customer.get("last_address") if customer else None
+
+    if name_known and last_address:
         intake_flow = f"""\
-1. Collect the service address:
+1. Greet the customer by name: "Hi {customer.get('name', '').split()[0]}, welcome back."
+2. Ask: "Is this for {last_address}, or a different location?"
+   - If the same address, use it and skip address collection.
+   - If a different address, collect the new address:
 {address_flow}
-2. Ask: "What type of service do you need?"
-3. Once you have the service type, ask: "Are you looking for someone to come out tonight, or would next business day work for you?"
+3. Ask: "What type of service do you need?"
+4. Once you have the service type, ask: "Are you looking for someone to come out tonight, or would next business day work for you?"
+Do not skip any step. Do not ask for their name — you already have it."""
+    elif name_known:
+        intake_flow = f"""\
+1. Greet the customer by name: "Hi {customer.get('name', '').split()[0]}, welcome back."
+2. Collect the service address:
+{address_flow}
+3. Ask: "What type of service do you need?"
+4. Once you have the service type, ask: "Are you looking for someone to come out tonight, or would next business day work for you?"
 Do not skip any step. Do not ask for their name — you already have it."""
     else:
         intake_flow = f"""\

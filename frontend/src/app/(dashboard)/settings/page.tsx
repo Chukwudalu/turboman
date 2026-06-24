@@ -340,6 +340,7 @@ export default function SettingsPage() {
   // Call confirmation settings
   const [confirmName, setConfirmName] = useState(true);
   const [confirmAddress, setConfirmAddress] = useState(true);
+  const [rememberCaller, setRememberCaller] = useState(true);
   const [savingConfirm, setSavingConfirm] = useState(false);
   const [savedConfirm, setSavedConfirm] = useState(false);
 
@@ -388,6 +389,7 @@ export default function SettingsPage() {
       setEscalationPhoneAfterHours(s.escalation_phone_after_hours ?? "");
       setConfirmName(s.confirm_name_spelling ?? true);
       setConfirmAddress(s.confirm_address_spelling ?? true);
+      setRememberCaller(s.remember_caller_info ?? true);
       setFallbackMessage(s.customer_fallback_message ?? "");
       setTechAcceptedMessage(s.customer_tech_accepted_message ?? "");
       setManagerAcceptedMessage(s.customer_manager_accepted_message ?? "");
@@ -595,6 +597,14 @@ export default function SettingsPage() {
               <p className="text-xs text-slate-400">AI asks for street, city, and postal code separately and spells each back</p>
             </div>
           </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={rememberCaller} onChange={(e) => setRememberCaller(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-brand focus:ring-brand" />
+            <div>
+              <span className="text-sm font-medium text-slate-700">Remember returning callers</span>
+              <p className="text-xs text-slate-400">AI greets returning customers by name and skips name collection</p>
+            </div>
+          </label>
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
           <button onClick={async () => {
@@ -603,6 +613,7 @@ export default function SettingsPage() {
               await api.updateTenantSettings(token, tenantId, {
                 confirm_name_spelling: confirmName,
                 confirm_address_spelling: confirmAddress,
+                remember_caller_info: rememberCaller,
               });
               setSavedConfirm(true);
               setTimeout(() => setSavedConfirm(false), 3000);

@@ -93,6 +93,7 @@ export interface TenantSettings {
   escalation_phone_after_hours: string | null;
   confirm_name_spelling: boolean | null;
   confirm_address_spelling: boolean | null;
+  remember_caller_info: boolean | null;
   customer_fallback_message: string | null;
   customer_tech_accepted_message: string | null;
   customer_manager_accepted_message: string | null;

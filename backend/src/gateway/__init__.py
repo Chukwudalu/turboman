@@ -230,6 +230,19 @@ async def _on_call_start(
 
     caller_phone = params.get("from", "unknown")
     state.customer = await upsert_customer(state.tenant["id"], caller_phone)
+    if state.tenant.get("remember_caller_info", True) and state.customer.get("id"):
+        from src.db import db as _db
+        last_sr = await (
+            _db.table("service_requests")
+            .select("address")
+            .eq("customer_id", state.customer["id"])
+            .not_.is_("address", "null")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if last_sr.data:
+            state.customer["last_address"] = last_sr.data[0]["address"]
     state.call_record = await create_call(state.tenant["id"], state.customer["id"], state.call_sid)
 
     sentry_sdk.set_tag("call_sid", state.call_sid)
