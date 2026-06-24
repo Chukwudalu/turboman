@@ -64,6 +64,10 @@ async def trigger_oncall_dispatch(
         managers = await list_oncall_technicians(tenant_id, role="manager")
         if not managers:
             logger.warning("No on-call contacts configured at all", tenant_id=tenant_id)
+            if customer_phone:
+                tenant = await db.table("tenants").select("customer_fallback_message").eq("id", tenant_id).single().execute()
+                msg = (tenant.data or {}).get("customer_fallback_message") or _DEFAULT_FALLBACK_MESSAGE
+                await send_sms(customer_phone, f"{msg} (Turboman)", from_phone)
             return
         dispatch = await create_dispatch(tenant_id, service_request_id)
         await _dispatch_to_contact(dispatch["id"], managers[0], method=notification_method,

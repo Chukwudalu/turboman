@@ -152,8 +152,41 @@ async def acknowledge_dispatch(
     await cancel_dispatch_timeouts(dispatch_id)
 
 
-async def acknowledge_dispatch_for_tenant(tenant_id: str) -> bool:
-    """Acknowledge the most recent dispatching record for a tenant (SMS reply flow)."""
+async def acknowledge_dispatch_for_tenant(tenant_id: str, tech_phone: str | None = None) -> bool:
+    """Acknowledge the dispatch this tech was contacted for (SMS reply flow).
+
+    Uses dispatch_sms_timeouts to find the specific dispatch the tech was
+    assigned to, avoiding wrong-dispatch acknowledgment when multiple
+    dispatches are active for the same tenant.
+    """
+    if tech_phone:
+        tech_result = await (
+            db.table("oncall_technicians")
+            .select("id")
+            .eq("phone", tech_phone)
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        if tech_result.data:
+            tech_id = tech_result.data[0]["id"]
+            timeout_result = await (
+                db.table("dispatch_sms_timeouts")
+                .select("dispatch_id")
+                .eq("tech_id", tech_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if timeout_result.data:
+                dispatch_id = timeout_result.data[0]["dispatch_id"]
+                dispatch = await get_dispatch(dispatch_id)
+                if dispatch and dispatch["status"] == "dispatching":
+                    await acknowledge_dispatch(dispatch_id, tech_id=tech_id)
+                    return True
+
+    # Fallback: no tech match, use most recent dispatching record
     result = await (
         db.table("oncall_dispatches")
         .select("id")

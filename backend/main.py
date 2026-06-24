@@ -305,6 +305,11 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
     company = ctx["company_name"]
     service = ctx["service_type"]
     location = f" at {ctx['address']}" if ctx["address"] else ""
+    customer_name = ctx.get("customer_name") or "the customer"
+    customer_phone = ctx.get("customer_phone") or ""
+    customer_info = f" The customer's name is {customer_name}."
+    if customer_phone:
+        customer_info += f" Their phone number is {', '.join(customer_phone)}."
     action = f"{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"
 
     is_emergency = ctx.get("is_emergency", True)
@@ -314,7 +319,7 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
         greeting = (
             f"Hello {name}. This is an escalation call from {company}. "
             f"We were unable to reach any on-call technicians for a {call_type} request. "
-            f"A customer needs {service}{location}. "
+            f"A customer needs {service}{location}.{customer_info} "
             f"Can you organize a technician to attend? "
             f"If you accept, we will notify the customer that someone is working on it. "
             f"Please say yes or no."
@@ -322,7 +327,7 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
     else:
         greeting = (
             f"Hello {name}. This is an {call_type} call from {company}. "
-            f"A customer needs {service}{location}. "
+            f"A customer needs {service}{location}.{customer_info} "
             f"If you accept, please contact the customer prior to attending to confirm the visit and service. "
             f"Are you available to attend tonight? Please say yes or no."
         )
@@ -347,12 +352,12 @@ async def oncall_callback(tech_id: str = Query(...)):
 
     name = tech["name"].split()[0]
 
-    # Find the most recent dispatch for this tenant that is still active
+    # Find the most recent dispatch for this tenant (any non-terminal or recently failed/rejected)
     dispatch_result = await (
         db.table("oncall_dispatches")
-        .select("id, status, service_requests(service_type, address, is_emergency)")
+        .select("id, status, service_requests(service_type, address, is_emergency, customers(name, phone))")
         .eq("tenant_id", tech["tenant_id"])
-        .in_("status", ["dispatching", "acknowledged"])
+        .in_("status", ["dispatching", "acknowledged", "rejected", "failed"])
         .order("created_at", desc=True)
         .limit(1)
         .execute()
@@ -367,6 +372,20 @@ async def oncall_callback(tech_id: str = Query(...)):
 
     dispatch = dispatch_result.data[0]
     dispatch_id = dispatch["id"]
+    sr = dispatch.get("service_requests") or {}
+    service = sr.get("service_type", "service request")
+    location = f" at {sr['address']}" if sr.get("address") else ""
+    is_emergency = bool(sr.get("is_emergency", True))
+    call_type = "emergency" if is_emergency else "after-hours service"
+    customer = sr.get("customers") or {}
+    cust_name = customer.get("name") or "the customer"
+    cust_phone = customer.get("phone") or ""
+    cust_info = f" The customer's name is {cust_name}."
+    if cust_phone:
+        cust_info += f" Their phone number is {', '.join(cust_phone)}."
+
+    base = settings.base_url.rstrip("/")
+    action = f"{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"
 
     await cancel_dispatch_timeouts(dispatch_id)
 
@@ -377,21 +396,24 @@ async def oncall_callback(tech_id: str = Query(...)):
             "Have a good night.</Say><Hangup/>"
         )
 
-    # Dispatch is still open — walk the tech through accepting it
-    sr = dispatch.get("service_requests") or {}
-    service = sr.get("service_type", "service request")
-    location = f" at {sr['address']}" if sr.get("address") else ""
-    is_emergency = bool(sr.get("is_emergency", True))
-    call_type = "emergency" if is_emergency else "after-hours service"
+    # failed/rejected — no one took it, let this tech pick it up
+    if dispatch["status"] in ("failed", "rejected"):
+        await db.table("oncall_dispatches").update({"status": "dispatching"}).eq("id", dispatch_id).execute()
+        return _xml(
+            f'<Gather input="speech" action="{action}" timeout="8" speechTimeout="3" language="en-US">'
+            f"<Say>Hi {name}, thanks for calling back. "
+            f"We have a {call_type} request for {service}{location} that no one was able to accept.{cust_info} "
+            f"Are you able to attend? Please say yes or no.</Say>"
+            f"</Gather>"
+            f'<Redirect method="POST">{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}&amp;no_input=1</Redirect>'
+        )
 
-    base = settings.base_url.rstrip("/")
-    action = f"{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"
-
+    # dispatching — still in progress
     if tech.get("role") == "manager":
         return _xml(
             f'<Gather input="speech" action="{action}" timeout="8" speechTimeout="3" language="en-US">'
             f"<Say>Hi {name}, thanks for calling back. "
-            f"We still have an open {call_type} request for {service}{location} and all technicians were unreachable. "
+            f"We still have an open {call_type} request for {service}{location} and all technicians were unreachable.{cust_info} "
             f"Can you organize a technician to attend? Please say yes or no.</Say>"
             f"</Gather>"
             f'<Redirect method="POST">{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}&amp;no_input=1</Redirect>'
@@ -400,7 +422,7 @@ async def oncall_callback(tech_id: str = Query(...)):
     return _xml(
         f'<Gather input="speech" action="{action}" timeout="8" speechTimeout="3" language="en-US">'
         f"<Say>Hi {name}, thanks for calling back. "
-        f"We still have an open after-hours {call_type} request for {service}{location}. "
+        f"We still have an open {call_type} request for {service}{location}.{cust_info} "
         f"If you accept, please contact the customer prior to attending to confirm the visit and service. "
         f"Are you available to attend tonight? Please say yes or no.</Say>"
         f"</Gather>"
@@ -423,9 +445,21 @@ async def oncall_call_response(
 
     form = await request.form()
     speech = form.get("SpeechResult", "").lower()
-    available = not no_input and any(w in speech for w in ("yes", "yeah", "sure", "yep", "okay", "ok", "affirmative", "can", "will"))
+    _YES = ("yes", "yeah", "sure", "yep", "okay", "ok", "affirmative", "can", "will", "absolutely", "definitely")
+    _NO = ("no", "nah", "nope", "not", "can't", "cannot", "unable", "unavailable")
+    available = not no_input and any(w in speech for w in _YES)
+    declined = not no_input and any(w in speech for w in _NO)
 
     base = settings.base_url.rstrip("/")
+
+    if not no_input and not available and not declined:
+        action = f"{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"
+        return _xml(
+            f'<Gather input="speech" action="{action}" timeout="8" speechTimeout="3" language="en-US">'
+            "<Say>Sorry, I didn't catch that. Please say yes or no.</Say>"
+            "</Gather>"
+            f'<Redirect>{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}&amp;no_input=1</Redirect>'
+        )
 
     if not available:
         asyncio.create_task(_guarded(try_next_tech(dispatch_id, tech_id, declined=True)))
@@ -515,7 +549,10 @@ async def oncall_call_status(
     form = await request.form()
     call_status = form.get("CallStatus", "")
 
-    if call_status in ("no-answer", "busy", "failed", "canceled"):
+    if call_status in ("busy", "failed"):
+        logger.info("Oncall call failed immediately — escalating now", status=call_status, dispatch_id=dispatch_id, tech_id=tech_id)
+        asyncio.create_task(_guarded(try_next_tech(dispatch_id, tech_id, declined=False)))
+    elif call_status in ("no-answer", "canceled"):
         logger.info("Oncall call unanswered — waiting for callback or timeout", status=call_status, dispatch_id=dispatch_id, tech_id=tech_id)
 
     return PlainTextResponse("", status_code=204)
@@ -544,7 +581,7 @@ async def sms_incoming(request: Request, From: str = Form("")):
             .limit(1)
             .execute()
         )
-        acknowledged = await acknowledge_dispatch_for_tenant(tenant_id)
+        acknowledged = await acknowledge_dispatch_for_tenant(tenant_id, tech_phone=From)
         if acknowledged:
             logger.info("Oncall dispatch acknowledged via SMS", from_phone=From)
             # Notify the customer
