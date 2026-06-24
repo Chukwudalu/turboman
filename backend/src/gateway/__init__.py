@@ -407,10 +407,14 @@ async def _stop_speaking(websocket: WebSocket, state: CallState):
 
 
 async def _end_call_gracefully(websocket: WebSocket, state: CallState):
-    """Say a brief farewell and close the call cleanly."""
+    """Say a brief farewell, save transcript, and close the call cleanly."""
     _cancel_silence_timer(state)
-    state.is_ended = True
     await _speak_and_wait(websocket, state, "Thanks for calling! Have a great day. Goodbye!")
+    if state.call_record and not state.is_ended:
+        state.is_ended = True
+        duration = int(time.time() - state.start_time)
+        transcript = "\n".join(state.transcript_lines)
+        await end_call(state.call_record["id"], "completed", duration, transcript)
     try:
         await websocket.close()
     except Exception:
