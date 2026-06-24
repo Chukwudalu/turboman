@@ -655,17 +655,24 @@ async def close_account(
     if redis and row.data.get("phone"):
         await redis.delete(f"tenant:phone:{row.data['phone']}")
 
-    await db.table("oncall_dispatches").update({
-        "status": "failed",
-        "resolved_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("tenant_id", tenant_id).eq("status", "dispatching").execute()
+    active_dispatches = await (
+        db.table("oncall_dispatches")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .eq("status", "dispatching")
+        .execute()
+    )
+    dispatch_ids = [d["id"] for d in (active_dispatches.data or [])]
 
-    await db.table("dispatch_sms_timeouts").update({
-        "processed": True,
-    }).eq("processed", False).in_(
-        "dispatch_id",
-        db.table("oncall_dispatches").select("id").eq("tenant_id", tenant_id)
-    ).execute()
+    if dispatch_ids:
+        await db.table("oncall_dispatches").update({
+            "status": "failed",
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }).in_("id", dispatch_ids).execute()
+
+        await db.table("dispatch_sms_timeouts").update({
+            "processed": True,
+        }).eq("processed", False).in_("dispatch_id", dispatch_ids).execute()
 
     await db.table("tenants").update({
         "plan": "closed",
