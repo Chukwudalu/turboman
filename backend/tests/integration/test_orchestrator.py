@@ -80,7 +80,6 @@ async def test_run_turn_returns_text():
         )
 
     assert result["response_text"]
-    assert not result["escalate"]
     assert len(result["updated_history"]) == 2  # user + assistant
 
 
@@ -103,12 +102,11 @@ async def test_run_turn_blocks_injection():
         mock_client.messages.stream.assert_not_called()
 
     assert result["response_text"]
-    assert not result["escalate"]
 
 
 @pytest.mark.asyncio
 async def test_run_turn_escalation():
-    """When Claude calls escalate_to_human, run_turn sets escalate=True."""
+    """When Claude calls escalate_to_human, route_action is invoked."""
     chunks: list[str] = []
 
     async def collect(c): chunks.append(c)
@@ -146,7 +144,10 @@ async def test_run_turn_escalation():
             on_chunk=collect,
         )
 
-    assert result["escalate"] is True
+    # route_action was called with the escalation tool
+    mock_route.assert_awaited_once()
+    assert mock_route.call_args.args[0] == "escalate_to_human"
+    assert result["response_text"]
 
 
 @pytest.mark.asyncio

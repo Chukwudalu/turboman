@@ -7,6 +7,8 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from tests.integration.conftest import _AsyncChainMock
+
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -16,11 +18,16 @@ async def client():
 
     mock_redis = MagicMock()
     mock_redis.aclose = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.set = AsyncMock(return_value=True)
+    mock_redis.delete = AsyncMock(return_value=True)
+    mock_redis.ping = AsyncMock(return_value=True)
 
     with (
         patch("main.aioredis.from_url", return_value=mock_redis),
         patch("main._poll_pending_notifications", new_callable=AsyncMock),
     ):
+        app.state.redis = mock_redis
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as c:
@@ -45,7 +52,6 @@ def _mock_tenant(plan="trial", trial_ends_at=None):
 @pytest.mark.asyncio
 async def test_dashboard_requires_auth(client):
     res = await client.get("/dashboard/summary?tenant_id=t1")
-    # FastAPI ≥0.136 returns 401; older versions returned 403
     assert res.status_code in (401, 403)
 
 
@@ -56,7 +62,7 @@ async def test_expired_trial_returns_402(client):
     expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     tenant = {"plan": "trial", "trial_ends_at": expired}
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
 
         res = await client.get("/dashboard/summary?tenant_id=t1", headers=_auth())
@@ -69,15 +75,17 @@ async def test_expired_trial_returns_402(client):
 @pytest.mark.asyncio
 async def test_summary_returns_counts(client):
     tenant = _mock_tenant()
-    summary_data = [{"count": 5}]
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
-            m.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = summary_data
-            m.select.return_value.eq.return_value.gte.return_value.execute.return_value.data = summary_data
-            m.select.return_value.eq.return_value.gte.return_value.eq.return_value.execute.return_value.data = summary_data
+            count_result = MagicMock()
+            count_result.count = 5
+            count_result.data = [{"count": 5}]
+            m.select.return_value.eq.return_value.gte.return_value.execute.return_value = count_result
+            m.select.return_value.eq.return_value.eq.return_value.gte.return_value.execute.return_value = count_result
+            m.select.return_value.eq.return_value.in_.return_value.execute.return_value = count_result
             return m
 
         mock_db.table.side_effect = table_side
@@ -100,16 +108,14 @@ async def test_calls_list_returns_data(client):
          "ended_at": "2024-01-01T10:02:00Z", "customers": {"name": "Alice", "phone": "+15555550001"}}
     ]
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             else:
-                q = MagicMock()
-                q.execute.return_value.data = calls
-                m.select.return_value.eq.return_value.order.return_value.limit.return_value = q
-                m.select.return_value.eq.return_value.order.return_value.limit.return_value.gt.return_value = q
+                m.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = calls
+                m.select.return_value.eq.return_value.order.return_value.lt.return_value.limit.return_value.execute.return_value.data = calls
             return m
 
         mock_db.table.side_effect = table_side
@@ -126,14 +132,13 @@ async def test_calls_list_returns_data(client):
 async def test_call_detail_not_found_returns_404(client):
     tenant = _mock_tenant()
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             else:
-                # get_call uses .eq(id).single().execute() — one eq, then single
-                m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = None
+                m.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = None
             return m
 
         mock_db.table.side_effect = table_side
@@ -158,7 +163,7 @@ async def test_service_requests_list(client):
     ]
 
     with (
-        patch("src.dashboard.router.db") as mock_db,
+        patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.dashboard.router.list_service_requests", AsyncMock(return_value=(requests, None))),
     ):
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
@@ -178,12 +183,12 @@ async def test_update_service_request_status(client):
           "oncall_dispatches": []}
 
     with (
-        patch("src.dashboard.router.db") as mock_db,
+        patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.dashboard.router.update_service_request", AsyncMock(return_value=sr)),
         patch("src.dashboard.router.get_service_request", AsyncMock(return_value=sr)),
     ):
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             return m
 
@@ -202,7 +207,7 @@ async def test_update_service_request_status(client):
 async def test_update_service_request_invalid_status_returns_400(client):
     tenant = _mock_tenant()
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
 
         res = await client.patch(
@@ -221,19 +226,17 @@ async def test_customers_list(client):
     tenant = _mock_tenant()
     customers = [
         {"id": "c1", "name": "Alice", "phone": "+15555550001",
-         "created_at": "2024-01-01T10:00:00Z", "last_call_at": None}
+         "created_at": "2024-01-01T10:00:00Z", "calls": []}
     ]
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             else:
-                q = MagicMock()
-                q.execute.return_value.data = customers
-                m.select.return_value.eq.return_value.order.return_value.limit.return_value = q
-                m.select.return_value.eq.return_value.order.return_value.limit.return_value.gt.return_value = q
+                m.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = customers
+                m.select.return_value.eq.return_value.order.return_value.lt.return_value.limit.return_value.execute.return_value.data = customers
             return m
 
         mock_db.table.side_effect = table_side
@@ -251,16 +254,20 @@ async def test_get_settings(client):
     tenant = {**_mock_tenant(), "id": "t1", "name": "HVAC Co", "phone": "+15555550001",
               "trial_ends_at": None, "business_hours_start": "09:00",
               "business_hours_end": "17:00", "business_timezone": "America/New_York",
-              "oncall_escalation_timeout_minutes": 10, "oncall_notification_method": "both",
-              "oncall_fallback_delay_minutes": 5, "escalation_phone": None,
-              "escalation_phone_after_hours": None, "cartesia_voice_id": None,
+              "oncall_voice_timeout_minutes": 5, "oncall_sms_timeout_minutes": 10,
+              "oncall_notification_method": "both", "oncall_fallback_delay_minutes": 5,
+              "escalation_phone": None, "escalation_phone_after_hours": None,
+              "confirm_name_spelling": None, "confirm_address_spelling": None,
+              "customer_fallback_message": None, "customer_tech_accepted_message": None,
+              "customer_manager_accepted_message": None,
+              "remember_caller_info": None, "cartesia_voice_id": None,
               "kb_about": None, "kb_services": None, "kb_hours_description": None,
               "kb_rate_regular": None, "kb_rate_after_hours": None,
               "kb_rate_maintenance": None, "kb_extra": None}
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             return m
 
@@ -280,12 +287,13 @@ async def test_escalations_list(client):
     escalations = [
         {"id": "e1", "status": "pending", "summary": "Leak in kitchen",
          "created_at": "2024-01-01T10:00:00Z", "handled_at": None,
-         "customers": {"name": "Alice", "phone": "+15555550001"}}
+         "customers": {"name": "Alice", "phone": "+15555550001"},
+         "calls": {"id": "call-1"}}
     ]
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             else:
@@ -309,11 +317,11 @@ async def test_mark_escalation_handled(client):
     escalation = {"id": "e1", "status": "pending", "tenant_id": "t1"}
     updated = {**escalation, "status": "handled", "handled_at": "2024-01-01T11:00:00Z",
                "customers": {"name": "Alice", "phone": "+15555550001"}, "summary": None,
-               "created_at": "2024-01-01T10:00:00Z"}
+               "created_at": "2024-01-01T10:00:00Z", "calls": {"id": "call-1"}}
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             elif name == "escalations":
@@ -337,9 +345,9 @@ async def test_mark_escalation_handled(client):
 async def test_mark_escalation_not_found_returns_404(client):
     tenant = _mock_tenant()
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             else:
@@ -364,16 +372,22 @@ async def test_close_account_owner_succeeds(client):
     tenant_row = {"phone": "+15555550001", "twilio_phone_sid": "PN123"}
 
     with (
-        patch("src.dashboard.router.db") as mock_db,
+        patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.services.twilio_provision.release_phone_number", MagicMock()),
     ):
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant_row
                 m.update.return_value.eq.return_value.execute.return_value.data = []
+            elif name == "oncall_dispatches":
+                m.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
+                m.update.return_value.in_.return_value.execute.return_value.data = []
+            elif name == "dispatch_sms_timeouts":
+                m.update.return_value.eq.return_value.in_.return_value.execute.return_value.data = []
             else:
                 m.update.return_value.eq.return_value.execute.return_value.data = []
+                m.delete.return_value.eq.return_value.execute.return_value.data = []
             return m
 
         mock_db.table.side_effect = table_side
@@ -406,13 +420,12 @@ async def test_team_list(client):
          "role": "owner", "active": True, "created_at": "2024-01-01T00:00:00Z"}
     ]
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             else:
-                # list_team uses .eq(...).order(...).execute()
                 m.select.return_value.eq.return_value.order.return_value.execute.return_value.data = members
             return m
 
@@ -433,16 +446,14 @@ async def test_kb_chunks_list(client):
         {"id": "c1", "content": "We offer HVAC services.", "metadata": {}, "created_at": "2024-01-01T00:00:00Z"}
     ]
 
-    with patch("src.dashboard.router.db") as mock_db:
+    with patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db:
         def table_side(name):
-            m = MagicMock()
+            m = _AsyncChainMock()
             if name == "tenants":
                 m.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
             else:
-                q = MagicMock()
-                q.execute.return_value.data = chunks
-                m.select.return_value.eq.return_value.order.return_value.limit.return_value = q
-                m.select.return_value.eq.return_value.order.return_value.limit.return_value.gt.return_value = q
+                m.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = chunks
+                m.select.return_value.eq.return_value.order.return_value.lt.return_value.limit.return_value.execute.return_value.data = chunks
             return m
 
         mock_db.table.side_effect = table_side
@@ -458,7 +469,7 @@ async def test_kb_upload_no_openai_key_returns_503(client):
     tenant = _mock_tenant()
 
     with (
-        patch("src.dashboard.router.db") as mock_db,
+        patch("src.dashboard.router.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.dashboard.router.settings") as mock_settings,
     ):
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
@@ -477,6 +488,11 @@ async def test_kb_upload_no_openai_key_returns_503(client):
 
 @pytest.mark.asyncio
 async def test_health_check(client):
-    res = await client.get("/health")
+    with patch("main.db", new_callable=_AsyncChainMock) as mock_db:
+        mock_db.table.return_value.select.return_value.limit.return_value.execute.return_value.data = [{"id": "t1"}]
+
+        res = await client.get("/health")
+
     assert res.status_code == 200
-    assert res.json() == {"status": "ok"}
+    body = res.json()
+    assert body["status"] == "ok"

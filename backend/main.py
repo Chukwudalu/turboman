@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from xml.sax.saxutils import escape as xml_escape
 
 import redis.asyncio as aioredis
 import sentry_sdk
@@ -116,6 +117,7 @@ async def _poll_dispatch_sms_timeouts() -> None:
                         )
                         await try_next_tech(row["dispatch_id"], row["tech_id"], declined=False)
                 except Exception as e:
+                    await db.table("dispatch_sms_timeouts").update({"processed": False}).eq("id", row["id"]).execute()
                     logger.error("dispatch_sms_timeout row failed", dispatch_id=row["dispatch_id"], error=str(e))
         except Exception as e:
             logger.error("dispatch_sms_timeouts poll failed", error=str(e))
@@ -231,8 +233,8 @@ async def incoming_call(request: Request):
     if tenant_json:
         called_tenant_id = _json.loads(tenant_json).get("id")
     else:
-        t_row = await db.table("tenants").select("id").eq("phone", called).single().execute()
-        called_tenant_id = (t_row.data or {}).get("id") if t_row.data else None
+        t_row = await db.table("tenants").select("id").eq("phone", called).limit(1).execute()
+        called_tenant_id = t_row.data[0].get("id") if t_row.data else None
 
     # If the caller is a known on-call technician for this tenant, route to the callback
     # acknowledgment flow instead of the AI agent.
@@ -267,8 +269,8 @@ async def incoming_call(request: Request):
 <Response>
   <Connect>
     <Stream url="{ws_url}">
-      <Parameter name="from" value="{caller}" />
-      <Parameter name="to" value="{called}" />
+      <Parameter name="from" value="{xml_escape(caller)}" />
+      <Parameter name="to" value="{xml_escape(called)}" />
     </Stream>
   </Connect>
 </Response>"""
@@ -301,15 +303,15 @@ async def oncall_call_start(dispatch_id: str = Query(...), tech_id: str = Query(
     await cancel_dispatch_timeouts(dispatch_id)
 
     base = settings.base_url.rstrip("/")
-    name = tech["name"].split()[0]  # first name only
-    company = ctx["company_name"]
-    service = ctx["service_type"]
-    location = f" at {ctx['address']}" if ctx["address"] else ""
-    customer_name = ctx.get("customer_name") or "the customer"
+    name = xml_escape(tech["name"].split()[0])
+    company = xml_escape(ctx["company_name"])
+    service = xml_escape(ctx["service_type"])
+    location = f" at {xml_escape(ctx['address'])}" if ctx["address"] else ""
+    customer_name = xml_escape(ctx.get("customer_name") or "the customer")
     customer_phone = ctx.get("customer_phone") or ""
     customer_info = f" The customer's name is {customer_name}."
     if customer_phone:
-        customer_info += f" Their phone number is {', '.join(customer_phone)}."
+        customer_info += f" Their phone number is {xml_escape(customer_phone)}."
     action = f"{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"
 
     is_emergency = ctx.get("is_emergency", True)
@@ -350,7 +352,7 @@ async def oncall_callback(tech_id: str = Query(...)):
     if not tech:
         return _xml("<Say>We couldn't identify your account. Please contact your dispatcher directly.</Say><Hangup/>")
 
-    name = tech["name"].split()[0]
+    name = xml_escape(tech["name"].split()[0])
 
     # Find the most recent dispatch for this tenant (any non-terminal or recently failed/rejected)
     dispatch_result = await (
@@ -373,16 +375,16 @@ async def oncall_callback(tech_id: str = Query(...)):
     dispatch = dispatch_result.data[0]
     dispatch_id = dispatch["id"]
     sr = dispatch.get("service_requests") or {}
-    service = sr.get("service_type", "service request")
-    location = f" at {sr['address']}" if sr.get("address") else ""
+    service = xml_escape(sr.get("service_type", "service request"))
+    location = f" at {xml_escape(sr['address'])}" if sr.get("address") else ""
     is_emergency = bool(sr.get("is_emergency", True))
     call_type = "emergency" if is_emergency else "after-hours service"
     customer = sr.get("customers") or {}
-    cust_name = customer.get("name") or "the customer"
+    cust_name = xml_escape(customer.get("name") or "the customer")
     cust_phone = customer.get("phone") or ""
     cust_info = f" The customer's name is {cust_name}."
     if cust_phone:
-        cust_info += f" Their phone number is {', '.join(cust_phone)}."
+        cust_info += f" Their phone number is {xml_escape(cust_phone)}."
 
     base = settings.base_url.rstrip("/")
     action = f"{base}/oncall-call-response?dispatch_id={dispatch_id}&amp;tech_id={tech_id}"

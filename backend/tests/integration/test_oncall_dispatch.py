@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.integration.conftest import _AsyncChainMock
+
 
 @pytest.fixture(autouse=True)
 def mock_get_tenant_phone():
@@ -37,6 +39,12 @@ _CTX = {
     "is_emergency": True,
     "timeout_minutes": 10,
     "fallback_delay_minutes": 5,
+    "customer_fallback_message": None,
+    "customer_tech_accepted_message": None,
+    "customer_manager_accepted_message": None,
+    "voice_timeout_minutes": 5,
+    "sms_timeout_minutes": 10,
+    "tenant_phone": "+15555550000",
 }
 
 
@@ -79,7 +87,7 @@ async def test_trigger_dispatches_to_first_tech():
 
 @pytest.mark.asyncio
 async def test_trigger_escalates_to_manager_when_no_techs():
-    """No techs configured → dispatch goes directly to the first manager."""
+    """No techs configured -> dispatch goes directly to the first manager."""
     dispatch = {"id": "d1"}
 
     with (
@@ -113,7 +121,7 @@ async def test_trigger_escalates_to_manager_when_no_techs():
 
 @pytest.mark.asyncio
 async def test_trigger_no_contacts_skips_dispatch():
-    """No techs and no managers → no dispatch created, no notification sent."""
+    """No techs and no managers -> no dispatch created, no notification sent."""
     with (
         patch(
             "src.services.oncall_dispatch.list_oncall_technicians",
@@ -122,7 +130,10 @@ async def test_trigger_no_contacts_skips_dispatch():
         patch(
             "src.services.oncall_dispatch.create_dispatch", AsyncMock()
         ) as mock_create,
+        patch("src.services.oncall_dispatch.db", new_callable=_AsyncChainMock) as mock_db,
     ):
+        mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = {}
+
         from src.services.oncall_dispatch import trigger_oncall_dispatch
 
         await trigger_oncall_dispatch(
@@ -143,9 +154,9 @@ async def test_trigger_no_contacts_skips_dispatch():
 
 @pytest.mark.asyncio
 async def test_try_next_tech_moves_to_next_in_list():
-    """Current tech unavailable → dispatches to the next tech in the role group."""
+    """Current tech unavailable -> dispatches to the next tech in the role group."""
     with (
-        patch("src.services.oncall_dispatch.get_dispatch", AsyncMock(return_value=_DISPATCH)),
+        patch("src.services.oncall_dispatch.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.services.oncall_dispatch.get_dispatch_context", AsyncMock(return_value=_CTX)),
         patch("src.services.oncall_dispatch.get_tech_by_id", AsyncMock(return_value=TECH_1)),
         patch(
@@ -156,6 +167,9 @@ async def test_try_next_tech_moves_to_next_in_list():
             "src.services.oncall_dispatch._dispatch_to_contact", AsyncMock()
         ) as mock_dispatch,
     ):
+        # Atomic claim succeeds
+        mock_db.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = [_DISPATCH]
+
         from src.services.oncall_dispatch import try_next_tech
 
         await try_next_tech("d1", "tech-1", declined=False)
@@ -166,9 +180,9 @@ async def test_try_next_tech_moves_to_next_in_list():
 
 @pytest.mark.asyncio
 async def test_try_next_tech_escalates_to_managers_after_last_tech():
-    """Last tech in list exhausted → escalates to first manager."""
+    """Last tech in list exhausted -> escalates to first manager."""
     with (
-        patch("src.services.oncall_dispatch.get_dispatch", AsyncMock(return_value=_DISPATCH)),
+        patch("src.services.oncall_dispatch.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.services.oncall_dispatch.get_dispatch_context", AsyncMock(return_value=_CTX)),
         patch("src.services.oncall_dispatch.get_tech_by_id", AsyncMock(return_value=TECH_2)),
         patch(
@@ -179,6 +193,8 @@ async def test_try_next_tech_escalates_to_managers_after_last_tech():
             "src.services.oncall_dispatch._dispatch_to_contact", AsyncMock()
         ) as mock_dispatch,
     ):
+        mock_db.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = [_DISPATCH]
+
         from src.services.oncall_dispatch import try_next_tech
 
         await try_next_tech("d1", "tech-2", declined=False)
@@ -189,9 +205,9 @@ async def test_try_next_tech_escalates_to_managers_after_last_tech():
 
 @pytest.mark.asyncio
 async def test_try_next_tech_exhausts_all_calls_exhaust_dispatch():
-    """Last manager exhausted → _exhaust_dispatch called with any_declined flag."""
+    """Last manager exhausted -> _exhaust_dispatch called with any_declined flag."""
     with (
-        patch("src.services.oncall_dispatch.get_dispatch", AsyncMock(return_value=_DISPATCH)),
+        patch("src.services.oncall_dispatch.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.services.oncall_dispatch.get_dispatch_context", AsyncMock(return_value=_CTX)),
         patch("src.services.oncall_dispatch.get_tech_by_id", AsyncMock(return_value=MANAGER)),
         patch(
@@ -202,6 +218,8 @@ async def test_try_next_tech_exhausts_all_calls_exhaust_dispatch():
             "src.services.oncall_dispatch._exhaust_dispatch", AsyncMock()
         ) as mock_exhaust,
     ):
+        mock_db.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = [_DISPATCH]
+
         from src.services.oncall_dispatch import try_next_tech
 
         await try_next_tech("d1", "mgr-1", declined=True)
@@ -212,11 +230,11 @@ async def test_try_next_tech_exhausts_all_calls_exhaust_dispatch():
 
 @pytest.mark.asyncio
 async def test_try_next_tech_no_managers_exhausts_from_techs():
-    """All techs exhausted and no managers → _exhaust_dispatch called."""
+    """All techs exhausted and no managers -> _exhaust_dispatch called."""
     ctx_no_mgr = {**_CTX, "notification_method": "sms"}
 
     with (
-        patch("src.services.oncall_dispatch.get_dispatch", AsyncMock(return_value=_DISPATCH)),
+        patch("src.services.oncall_dispatch.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.services.oncall_dispatch.get_dispatch_context", AsyncMock(return_value=ctx_no_mgr)),
         patch("src.services.oncall_dispatch.get_tech_by_id", AsyncMock(return_value=TECH_1)),
         patch(
@@ -227,6 +245,8 @@ async def test_try_next_tech_no_managers_exhausts_from_techs():
             "src.services.oncall_dispatch._exhaust_dispatch", AsyncMock()
         ) as mock_exhaust,
     ):
+        mock_db.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = [_DISPATCH]
+
         from src.services.oncall_dispatch import try_next_tech
 
         await try_next_tech("d1", "tech-1", declined=False)
@@ -236,15 +256,16 @@ async def test_try_next_tech_no_managers_exhausts_from_techs():
 
 @pytest.mark.asyncio
 async def test_try_next_tech_skips_if_dispatch_not_active():
-    """Dispatch already resolved → no escalation, no notification."""
-    done = {"id": "d1", "status": "acknowledged"}
-
+    """Dispatch already resolved -> no escalation, no notification."""
     with (
-        patch("src.services.oncall_dispatch.get_dispatch", AsyncMock(return_value=done)),
+        patch("src.services.oncall_dispatch.db", new_callable=_AsyncChainMock) as mock_db,
         patch(
             "src.services.oncall_dispatch._dispatch_to_contact", AsyncMock()
         ) as mock_dispatch,
     ):
+        # Atomic claim fails (dispatch not in dispatching state)
+        mock_db.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
+
         from src.services.oncall_dispatch import try_next_tech
 
         await try_next_tech("d1", "tech-1")
@@ -254,13 +275,16 @@ async def test_try_next_tech_skips_if_dispatch_not_active():
 
 @pytest.mark.asyncio
 async def test_try_next_tech_skips_if_dispatch_missing():
-    """Dispatch ID not found → graceful no-op."""
+    """Dispatch ID not found -> graceful no-op."""
     with (
-        patch("src.services.oncall_dispatch.get_dispatch", AsyncMock(return_value=None)),
+        patch("src.services.oncall_dispatch.db", new_callable=_AsyncChainMock) as mock_db,
         patch(
             "src.services.oncall_dispatch._dispatch_to_contact", AsyncMock()
         ) as mock_dispatch,
     ):
+        # Atomic claim fails (no matching row)
+        mock_db.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
+
         from src.services.oncall_dispatch import try_next_tech
 
         await try_next_tech("bad-id", "tech-1")

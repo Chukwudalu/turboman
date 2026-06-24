@@ -7,6 +7,8 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from tests.integration.conftest import _AsyncChainMock
+
 ADMIN_SECRET = "test-admin-secret"
 ADMIN_HEADER = {"X-Admin-Secret": ADMIN_SECRET}
 
@@ -17,6 +19,10 @@ async def client():
 
     mock_redis = MagicMock()
     mock_redis.aclose = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.set = AsyncMock(return_value=True)
+    mock_redis.delete = AsyncMock(return_value=True)
+    mock_redis.ping = AsyncMock(return_value=True)
 
     with (
         patch("main.aioredis.from_url", return_value=mock_redis),
@@ -25,6 +31,7 @@ async def client():
     ):
         mock_settings.admin_secret = ADMIN_SECRET
         mock_settings.openai_api_key = ""
+        app.state.redis = mock_redis
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as c:
@@ -36,7 +43,6 @@ async def client():
 @pytest.mark.asyncio
 async def test_missing_admin_secret_returns_403(client):
     res = await client.get("/admin/tenants")
-    # Missing required header → 422 (FastAPI) or 403 (custom guard)
     assert res.status_code in (403, 422)
 
 
@@ -52,7 +58,7 @@ async def test_wrong_admin_secret_returns_403(client):
 async def test_list_tenants(client):
     tenants = [{"id": "t1", "name": "HVAC Co", "trade_type": "hvac", "phone": "+15555550001", "fsa_type": "jobber", "created_at": "2024-01-01"}]
 
-    with patch("src.admin.router.db") as mock_db:
+    with patch("src.admin.router.db", new_callable=_AsyncChainMock) as mock_db:
         mock_db.table.return_value.select.return_value.execute.return_value.data = tenants
 
         res = await client.get("/admin/tenants", headers=ADMIN_HEADER)
@@ -69,7 +75,7 @@ async def test_close_tenant_success(client):
     tenant = {"phone": "+15555550001", "twilio_phone_sid": "PN123"}
 
     with (
-        patch("src.admin.router.db") as mock_db,
+        patch("src.admin.router.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.admin.router.release_phone_number") as mock_release,
     ):
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
@@ -84,7 +90,7 @@ async def test_close_tenant_success(client):
 
 @pytest.mark.asyncio
 async def test_close_tenant_not_found_returns_404(client):
-    with patch("src.admin.router.db") as mock_db:
+    with patch("src.admin.router.db", new_callable=_AsyncChainMock) as mock_db:
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = None
 
         res = await client.post("/admin/tenants/nonexistent", headers=ADMIN_HEADER)
@@ -97,7 +103,7 @@ async def test_close_tenant_twilio_failure_still_closes(client):
     tenant = {"phone": "+15555550001", "twilio_phone_sid": "PN123"}
 
     with (
-        patch("src.admin.router.db") as mock_db,
+        patch("src.admin.router.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.admin.router.release_phone_number", side_effect=Exception("Twilio error")),
     ):
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
@@ -114,7 +120,7 @@ async def test_close_tenant_no_phone_skips_twilio(client):
     tenant = {"phone": None, "twilio_phone_sid": None}
 
     with (
-        patch("src.admin.router.db") as mock_db,
+        patch("src.admin.router.db", new_callable=_AsyncChainMock) as mock_db,
         patch("src.admin.router.release_phone_number") as mock_release,
     ):
         mock_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = tenant
@@ -142,7 +148,7 @@ async def test_add_kb_chunk_no_openai_key_returns_503(client):
 async def test_list_kb_chunks(client):
     chunks = [{"id": "c1", "content": "info", "metadata": {}, "created_at": "2024-01-01"}]
 
-    with patch("src.admin.router.db") as mock_db:
+    with patch("src.admin.router.db", new_callable=_AsyncChainMock) as mock_db:
         mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = chunks
 
         res = await client.get("/admin/tenants/t1/kb", headers=ADMIN_HEADER)
@@ -153,7 +159,7 @@ async def test_list_kb_chunks(client):
 
 @pytest.mark.asyncio
 async def test_delete_kb_chunk(client):
-    with patch("src.admin.router.db") as mock_db:
+    with patch("src.admin.router.db", new_callable=_AsyncChainMock) as mock_db:
         mock_db.table.return_value.delete.return_value.eq.return_value.execute.return_value.data = []
 
         res = await client.delete("/admin/kb/chunk-123", headers=ADMIN_HEADER)

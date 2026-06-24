@@ -23,10 +23,10 @@ async def get_tech_by_id(tech_id: str) -> dict | None:
         db.table("oncall_technicians")
         .select("*")
         .eq("id", tech_id)
-        .single()
+        .limit(1)
         .execute()
     )
-    return result.data
+    return result.data[0] if result.data else None
 
 
 async def create_oncall_technician(
@@ -71,10 +71,10 @@ async def get_dispatch(dispatch_id: str) -> dict | None:
         db.table("oncall_dispatches")
         .select("*")
         .eq("id", dispatch_id)
-        .single()
+        .limit(1)
         .execute()
     )
-    return result.data
+    return result.data[0] if result.data else None
 
 
 async def get_dispatch_context(dispatch_id: str) -> dict | None:
@@ -92,13 +92,13 @@ async def get_dispatch_context(dispatch_id: str) -> dict | None:
             "  customers(phone, name))"
         )
         .eq("id", dispatch_id)
-        .single()
+        .limit(1)
         .execute()
     )
     if not result.data:
         return None
 
-    d = result.data
+    d = result.data[0]
     sr = d.get("service_requests") or {}
     tenant = sr.get("tenants") or {}
     customer = sr.get("customers") or {}

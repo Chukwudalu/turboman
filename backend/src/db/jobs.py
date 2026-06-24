@@ -40,25 +40,24 @@ async def create_service_request(
     return result.data[0]
 
 
-async def update_service_request(request_id: str, updates: dict) -> dict:
-    result = await (
-        db.table("service_requests")
-        .update(updates)
-        .eq("id", request_id)
-        .execute()
-    )
-    return result.data[0]
+async def update_service_request(request_id: str, updates: dict, tenant_id: str | None = None) -> dict:
+    q = db.table("service_requests").update(updates).eq("id", request_id)
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    result = await q.execute()
+    return result.data[0] if result.data else {}
 
 
-async def get_service_request(request_id: str) -> dict | None:
-    result = await (
+async def get_service_request(request_id: str, tenant_id: str | None = None) -> dict | None:
+    q = (
         db.table("service_requests")
         .select("*, customers(name, phone, email), oncall_dispatches(status, created_at)")
         .eq("id", request_id)
-        .single()
-        .execute()
     )
-    return result.data
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    result = await q.limit(1).execute()
+    return result.data[0] if result.data else None
 
 
 async def get_latest_open_request(customer_id: str) -> dict | None:

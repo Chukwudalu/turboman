@@ -232,17 +232,19 @@ async def _on_call_start(
     state.customer = await upsert_customer(state.tenant["id"], caller_phone)
     if state.tenant.get("remember_caller_info", True) and state.customer.get("id"):
         from src.db import db as _db
-        last_sr = await (
-            _db.table("service_requests")
-            .select("address")
-            .eq("customer_id", state.customer["id"])
-            .not_.is_("address", "null")
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if last_sr.data:
-            state.customer["last_address"] = last_sr.data[0]["address"]
+        try:
+            last_sr = await (
+                _db.table("service_requests")
+                .select("address")
+                .eq("customer_id", state.customer["id"])
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if last_sr.data and last_sr.data[0].get("address"):
+                state.customer["last_address"] = last_sr.data[0]["address"]
+        except Exception:
+            pass
     state.call_record = await create_call(state.tenant["id"], state.customer["id"], state.call_sid)
 
     sentry_sdk.set_tag("call_sid", state.call_sid)
@@ -407,6 +409,7 @@ async def _stop_speaking(websocket: WebSocket, state: CallState):
 async def _end_call_gracefully(websocket: WebSocket, state: CallState):
     """Say a brief farewell and close the call cleanly."""
     _cancel_silence_timer(state)
+    state.is_ended = True
     await _speak_and_wait(websocket, state, "Thanks for calling! Have a great day. Goodbye!")
     try:
         await websocket.close()

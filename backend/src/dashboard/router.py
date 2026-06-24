@@ -28,6 +28,7 @@ from src.db.oncall import (
 )
 from src.db.rag import ingest_chunk
 from src.services.notifications import send_confirmation_sms
+from src.utils.logger import logger
 from src.utils.text import split_text
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -172,12 +173,12 @@ async def get_service_request_detail(request_id: str, tenant_id: str = Depends(_
         .select("*, customers(name, phone, email), calls(twilio_sid, duration_s), oncall_dispatches(status, created_at)")
         .eq("id", request_id)
         .eq("tenant_id", tenant_id)
-        .single()
+        .limit(1)
         .execute()
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Service request not found")
-    return result.data
+    return result.data[0]
 
 
 _anthropic = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
@@ -264,10 +265,10 @@ async def update_request_status(request_id: str, body: StatusUpdate, tenant_id: 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    updated = await update_service_request(request_id, updates)
+    updated = await update_service_request(request_id, updates, tenant_id=tenant_id)
 
     if body.status == "scheduled":
-        request = await get_service_request(request_id)
+        request = await get_service_request(request_id, tenant_id=tenant_id)
         if request:
             customer = request.get("customers") or {}
             phone = customer.get("phone")
@@ -648,7 +649,6 @@ async def close_account(
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, lambda: release_phone_number(row.data["twilio_phone_sid"]))
         except Exception as e:
-            from src.utils.logger import logger
             logger.error("Failed to release Twilio number on account close", error=str(e))
 
     redis = getattr(request.app.state, "redis", None)
@@ -683,7 +683,6 @@ async def close_account(
     await db.table("refresh_tokens").delete().eq("tenant_id", tenant_id).execute()
     await db.table("users").delete().eq("tenant_id", tenant_id).execute()
 
-    from src.utils.logger import logger
     logger.info("Account closed by owner", tenant_id=tenant_id)
     return {"closed": True}
 

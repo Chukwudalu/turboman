@@ -133,7 +133,8 @@ async def register(request: Request, body: RegisterRequest):
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    existing = await db.table("users").select("id").eq("email", body.email).execute()
+    email = body.email.strip().lower()
+    existing = await db.table("users").select("id").eq("email", email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
@@ -165,7 +166,7 @@ async def register(request: Request, body: RegisterRequest):
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
     try:
         user_result = await db.table("users").insert({
-            "email": body.email,
+            "email": email,
             "name": body.name,
             "password_hash": hashed,
             "tenant_id": tenant["id"],
@@ -182,7 +183,7 @@ async def register(request: Request, body: RegisterRequest):
 
     from src.services.email import send_verification_email
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: send_verification_email(body.email, body.name, verification_token))
+    await loop.run_in_executor(None, lambda: send_verification_email(email, body.name, verification_token))
 
     return {"message": "Account created. Please check your email to verify your account."}
 
@@ -192,7 +193,7 @@ async def register(request: Request, body: RegisterRequest):
 @router.post("/token", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def login(request: Request, body: LoginRequest):
-    result = await db.table("users").select("email, password_hash, tenant_id, role, active, email_verified").eq("email", body.email).execute()
+    result = await db.table("users").select("email, password_hash, tenant_id, role, active, email_verified").eq("email", body.email.strip().lower()).execute()
     user = result.data[0] if result.data else None
 
     password_hash = user["password_hash"] if user else _DUMMY_HASH
@@ -309,7 +310,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
 
     result = await db.table("users").select("id, active, password_reset_expires_at").eq("password_reset_token", body.token).execute()
     user = result.data[0] if result.data else None
-    if not user or not user.get("active"):
+    if not user or not user.get("active") or not user.get("password_reset_expires_at"):
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
 
     expires = datetime.fromisoformat(user["password_reset_expires_at"].replace("Z", "+00:00"))
@@ -376,12 +377,13 @@ _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 async def invite_user(body: InviteRequest, payload: dict = Depends(_require_role(["owner", "admin"]))):
     if body.role not in ("member", "admin"):
         raise HTTPException(status_code=422, detail="Role must be 'member' or 'admin'")
-    if not _EMAIL_RE.match(body.email):
+    invite_email = body.email.strip().lower()
+    if not _EMAIL_RE.match(invite_email):
         raise HTTPException(status_code=422, detail="Invalid email address")
 
     tenant_id = payload["tenant_id"]
 
-    existing = await db.table("users").select("id").eq("email", body.email).execute()
+    existing = await db.table("users").select("id").eq("email", invite_email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="A user with this email already exists")
 
@@ -389,7 +391,7 @@ async def invite_user(body: InviteRequest, payload: dict = Depends(_require_role
     hashed = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt()).decode()
 
     result = await db.table("users").insert({
-        "email": body.email,
+        "email": invite_email,
         "name": body.name,
         "password_hash": hashed,
         "tenant_id": tenant_id,
@@ -405,7 +407,7 @@ async def invite_user(body: InviteRequest, payload: dict = Depends(_require_role
 
     from src.services.email import send_invite_email
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: send_invite_email(body.email, body.name, temp_password))
+    await loop.run_in_executor(None, lambda: send_invite_email(invite_email, body.name, temp_password))
 
     return {
         "id": user["id"],
