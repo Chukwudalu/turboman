@@ -12,7 +12,7 @@ from twilio.rest import Client as TwilioClient
 import sentry_sdk
 
 from src.config import settings
-from src.db.queries import create_call, end_call, get_tenant_by_phone, upsert_customer
+from src.db.queries import create_call, create_escalation, end_call, get_tenant_by_phone, upsert_customer
 from src.db.rag import search_kb
 from src.orchestrator import run_turn
 from src.services.cartesia import stream_tts
@@ -487,6 +487,13 @@ async def _transfer_call(websocket: WebSocket, state: CallState):
     if state.call_record:
         duration = int(time.time() - state.start_time)
         await end_call(state.call_record["id"], "transferred", duration, "\n".join(state.transcript_lines))
+        customer_id = state.customer.get("id") if state.customer else None
+        await create_escalation(
+            tenant_id=state.tenant["id"],
+            call_id=state.call_record["id"],
+            customer_id=customer_id,
+            summary="Customer requested transfer to a team member.",
+        )
 
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'

@@ -46,6 +46,7 @@ async def book_job(inputs: dict, *, tenant: dict, customer: dict | None, call_id
                 service_type=service,
                 address=inputs.get("address"),
                 customer_phone=customer.get("phone"),
+                customer_name=customer.get("name"),
                 notification_method=tenant.get("oncall_notification_method") or "both",
                 is_emergency=emergency,
             )

@@ -51,6 +51,7 @@ async def trigger_oncall_dispatch(
     service_type: str,
     address: str | None,
     customer_phone: str | None,
+    customer_name: str | None = None,
     notification_method: str = "both",
     is_emergency: bool = True,
 ) -> None:
@@ -72,13 +73,13 @@ async def trigger_oncall_dispatch(
         dispatch = await create_dispatch(tenant_id, service_request_id)
         await _dispatch_to_contact(dispatch["id"], managers[0], method=notification_method,
                                    service_type=service_type, address=address, customer_phone=customer_phone,
-                                   is_emergency=is_emergency, from_phone=from_phone)
+                                   customer_name=customer_name, is_emergency=is_emergency, from_phone=from_phone)
         return
 
     dispatch = await create_dispatch(tenant_id, service_request_id)
     await _dispatch_to_contact(dispatch["id"], techs[0], method=notification_method,
                                service_type=service_type, address=address, customer_phone=customer_phone,
-                               is_emergency=is_emergency, from_phone=from_phone)
+                               customer_name=customer_name, is_emergency=is_emergency, from_phone=from_phone)
 
 
 async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: bool = False) -> None:
@@ -131,7 +132,7 @@ async def try_next_tech(dispatch_id: str, current_tech_id: str, *, declined: boo
         await _dispatch_to_contact(
             dispatch_id, contact, method=method,
             service_type=ctx["service_type"], address=ctx["address"],
-            customer_phone=ctx["customer_phone"],
+            customer_phone=ctx["customer_phone"], customer_name=ctx.get("customer_name"),
             any_declined=declined, is_emergency=is_emergency, from_phone=from_phone,
         )
 
@@ -156,13 +157,16 @@ async def _dispatch_to_contact(
     service_type: str,
     address: str | None,
     customer_phone: str | None,
+    customer_name: str | None = None,
     any_declined: bool = False,
     is_emergency: bool = True,
     from_phone: str | None = None,
 ) -> None:
     effective_method = method or "both"
     address_str = f" at {address}" if address else ""
-    customer_str = f" Customer: {customer_phone}." if customer_phone else ""
+    name_str = f" Customer: {customer_name}." if customer_name else ""
+    phone_str = f" Phone: {customer_phone}." if customer_phone else ""
+    customer_str = f"{name_str}{phone_str}"
     role = tech.get("role", "tech")
 
     logger.info(
