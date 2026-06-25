@@ -2,13 +2,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
-import { LayoutDashboard, Phone, ClipboardList, Users, BookOpen, LogOut, Zap, Settings2, Moon, PhoneForwarded } from "lucide-react";
+import { LayoutDashboard, Phone, Users, BookOpen, LogOut, Zap, Settings2, Moon, PhoneForwarded } from "lucide-react";
 import clsx from "clsx";
 
 const NAV = [
   { href: "/dashboard",       label: "Overview",        icon: LayoutDashboard },
   { href: "/calls",           label: "Calls",            icon: Phone },
-  { href: "/requests",        label: "Service Requests", icon: ClipboardList },
   { href: "/after-hours",     label: "After Hours",      icon: Moon },
   { href: "/escalations",    label: "Escalations",      icon: PhoneForwarded },
   { href: "/customers",       label: "Customers",        icon: Users },
